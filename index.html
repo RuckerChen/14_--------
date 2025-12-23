@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>高性能微电网光伏系统故障检测界面</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+</head>
+<body>
+    <!-- 顶部导航栏 -->
+    <nav class="navbar">
+        <div class="nav-left">
+            <div class="logo">
+                <i class="fas fa-solar-panel"></i>
+                <span>光伏故障检测系统</span>
+            </div>
+            <div class="location">
+                <i class="fas fa-map-marker-alt"></i>
+                <span>台湾彰化北斗地区微电网</span>
+            </div>
+        </div>
+        <div class="nav-center">
+            <div class="nav-tabs">
+                <button class="nav-tab active" data-view="overview">
+                    <i class="fas fa-globe"></i> 全场概览
+                </button>
+                <button class="nav-tab" data-view="unit-control">
+                    <i class="fas fa-cogs"></i> 组串控制
+                </button>
+                <button class="nav-tab" data-view="detail">
+                    <i class="fas fa-search"></i> 故障诊断
+                </button>
+                <button class="nav-tab" data-view="support">
+                    <i class="fas fa-tools"></i> 支持配置
+                </button>
+            </div>
+        </div>
+        <div class="nav-right">
+            <div class="system-status">
+                <span class="status-indicator active"></span>
+                <span>系统在线</span>
+            </div>
+            <div class="time-display" id="current-time"></div>
+        </div>
+    </nav>
+
+    <!-- 报警栏 -->
+    <div class="alert-bar" id="alert-bar">
+        <div class="alert-content">
+            <i class="fas fa-exclamation-triangle"></i>
+            <span id="alert-message">系统运行正常</span>
+        </div>
+        <button class="alert-ack" id="ack-alert">
+            <i class="fas fa-check"></i> 确认
+        </button>
+    </div>
+
+    <!-- 主内容区域 -->
+    <main class="main-content">
+        <!-- 一级显示：全场概览 -->
+        <div id="overview-view" class="view active">
+            <!-- 内容由JavaScript动态加载 -->
+        </div>
+
+        <!-- 二级显示：组串级控制 -->
+        <div id="unit-control-view" class="view">
+            <!-- 内容由JavaScript动态加载 -->
+        </div>
+
+        <!-- 三级显示：故障深度诊断 -->
+        <div id="detail-view" class="view">
+            <!-- 内容由JavaScript动态加载 -->
+        </div>
+
+        <!-- 四级显示：支持与配置 -->
+        <div id="support-view" class="view">
+            <!-- 内容由JavaScript动态加载 -->
+        </div>
+    </main>
+
+    <!-- 快速操作面板 -->
+    <div class="quick-actions">
+        <button class="quick-btn" id="quick-shutdown">
+            <i class="fas fa-power-off"></i>
+            <span>快速关断</span>
+        </button>
+        <button class="quick-btn" id="iv-scan">
+            <i class="fas fa-wave-square"></i>
+            <span>I-V扫描</span>
+        </button>
+        <button class="quick-btn" id="report-gen">
+            <i class="fas fa-file-alt"></i>
+            <span>生成报告</span>
+        </button>
+        <button class="quick-btn" id="ai-diagnose">
+            <i class="fas fa-brain"></i>
+            <span>AI诊断</span>
+        </button>
+    </div>
+
+    <!-- 模态框容器 -->
+    <div id="modal-container"></div>
+
+    <!-- 脚本文件 -->
+    <script src="data.js"></script>
+    <script src="charts.js"></script>
+    <script src="components/overview.js"></script>
+    <script src="components/unit-control.js"></script>
+    <script src="components/detail-view.js"></script>
+    <script src="components/support-view.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
