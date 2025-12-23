@@ -331,6 +331,84 @@ body {
     margin: var(--spacing-md) 0;
 }
 
+/* 能量流向拓扑图动画样式 */
+.topology-diagram {
+    position: relative;
+    padding: var(--spacing-md) 0;
+}
+
+.topology-node .node-icon {
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    z-index: 2;
+}
+
+.topology-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 8px;
+    border-radius: 6px;
+    background: linear-gradient(90deg, rgba(45,134,45,0.08), rgba(45,134,45,0.12));
+    overflow: hidden;
+}
+
+.topology-line::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.35) 30%, rgba(255,255,255,0) 60%);
+    background-size: 200% 100%;
+    transform: translateX(-100%);
+    opacity: 0;
+}
+
+.topology-diagram.animating .topology-line::after {
+    opacity: 1;
+    animation: flow 1.4s linear infinite;
+}
+
+@keyframes flow {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+.energy-flow {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(90deg, rgba(45,134,45,0.03) 0 10px, rgba(45,134,45,0.015) 10px 20px);
+    display: none;
+    z-index: 1;
+}
+
+.topology-diagram.animating .energy-flow {
+    display: block;
+    animation: moveFlow 6s linear infinite;
+}
+
+@keyframes moveFlow {
+    0% { background-position: 0 0; }
+    100% { background-position: 1000px 0; }
+}
+
+.topology-diagram.animating .node-icon {
+    animation: nodeGlow 1.8s infinite;
+    box-shadow: 0 0 18px rgba(45,134,45,0.15);
+}
+
+@keyframes nodeGlow {
+    0% { transform: scale(1); box-shadow: 0 0 6px rgba(45,134,45,0.06); }
+    50% { transform: scale(1.03); box-shadow: 0 0 22px rgba(45,134,45,0.22); }
+    100% { transform: scale(1); box-shadow: 0 0 6px rgba(45,134,45,0.06); }
+}
+
+/* 不同连线颜色与默认布局（可按需要微调：top/left/width） */
+.topology-line.line-1 { background: linear-gradient(90deg, rgba(45,134,45,0.09), rgba(45,134,45,0.18)); top: 48px; left: 8%; width: 34%; z-index: 1; }
+.topology-line.line-2 { background: linear-gradient(90deg, rgba(0,191,255,0.08), rgba(0,191,255,0.16)); top: 48px; left: 46%; width: 22%; z-index: 1; }
+.topology-line.line-3 { background: linear-gradient(90deg, rgba(255,200,0,0.08), rgba(255,140,0,0.16)); top: 110px; left: 8%; width: 62%; z-index: 1; }
+.topology-line.line-4 { background: linear-gradient(90deg, rgba(255,0,0,0.08), rgba(255,0,0,0.16)); top: 170px; left: 66%; width: 26%; z-index: 1; }
+.topology-line.line-5 { background: linear-gradient(90deg, rgba(128,128,128,0.08), rgba(128,128,128,0.14)); top: 210px; left: 30%; width: 40%; z-index: 1; }
+
 /* 表格样式 */
 .data-table {
     width: 100%;
@@ -641,4 +719,19 @@ body {
         border: 1px solid #000;
         break-inside: avoid;
     }
+}
+
+/* 选中逆变器高亮样式 */
+.inverter-card.selected {
+    transform: translateY(-6px);
+    box-shadow: 0 12px 30px rgba(45, 134, 45, 0.15);
+    border-color: #2D862D;
+    background: rgba(45, 134, 45, 0.06);
+}
+
+/* 图表单栏堆叠：上下排列并保持间距 */
+.chart-column {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 }

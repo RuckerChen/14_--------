@@ -2,10 +2,18 @@ class UnitControlView {
     constructor() {
         this.container = document.getElementById('unit-control-view');
         this.selectedInverter = null;
+        this.inverterStringMap = {};
+        // 建立逆变器 <-> 组串映射（均匀分配或根据命名规则）
+        this.buildInverterStringMap();
     }
     
     render() {
         const data = window.systemData;
+        // 默认选中第一个逆变器，便于快速预览
+        if (!this.selectedInverter && data.devices && data.devices.inverters && data.devices.inverters.length > 0) {
+            this.buildInverterStringMap();
+            this.selectedInverter = data.devices.inverters[0];
+        }
         
         this.container.innerHTML = `
             <div class="unit-control-container">
@@ -88,7 +96,7 @@ class UnitControlView {
     
     renderInverterCards(inverters) {
         return inverters.map(inverter => `
-            <div class="inverter-card ${inverter.status}" 
+            <div class="inverter-card ${inverter.status} ${this.selectedInverter && this.selectedInverter.id === inverter.id ? 'selected' : ''}" 
                  data-id="${inverter.id}"
                  onclick="unitControlView.selectInverter('${inverter.id}')">
                 <div class="inverter-header">
@@ -130,16 +138,31 @@ class UnitControlView {
         return statusMap[status] || status;
     }
     
+    // 根据当前系统数据构造逆变器到组串的映射（均匀分配）
+    buildInverterStringMap() {
+        const inverters = window.systemData.devices.inverters;
+        const strings = window.systemData.devices.strings;
+        this.inverterStringMap = {};
+        if (!inverters || inverters.length === 0) return;
+        strings.forEach((s, idx) => {
+            const inv = inverters[idx % inverters.length];
+            if (!this.inverterStringMap[inv.id]) this.inverterStringMap[inv.id] = [];
+            this.inverterStringMap[inv.id].push(s);
+        });
+    }
+    
     selectInverter(inverterId) {
         const data = window.systemData;
         this.selectedInverter = data.devices.inverters.find(inv => inv.id === inverterId);
+        // 当选择逆变器时，确保映射是最新的
+        this.buildInverterStringMap();
         this.render();
     }
     
     renderInverterDetail(inverter) {
-        const relatedStrings = window.systemData.devices.strings.filter(s => 
-            s.id.startsWith(inverter.id.split('-')[1])
-        );
+        const relatedStrings = (this.inverterStringMap[inverter.id] || []);
+        const ivCanvasId = `${inverter.id}-iv-chart`;
+        const powerCanvasId = `${inverter.id}-power-chart`;
         
         return `
             <div class="card">
@@ -234,12 +257,37 @@ class UnitControlView {
                                 '温度正常'}
                         </div>
                     </div>
+
                     
+                    <!-- I-V 曲线与功率趋势（单栏显示） -->
+                    <div class="detail-section full-width">
+                        <h4>I-V 曲线 / 功率趋势</h4>
+                        <div class="chart-column">
+                            <div class="chart-container" style="height: 260px;">
+                                <canvas id="${ivCanvasId}"></canvas>
+                                <div class="chart-actions">
+                                    <button class="btn btn-secondary btn-sm" onclick="unitControlView.exportIVCurve('${inverter.id}')">
+                                        <i class="fas fa-download"></i> 导出 I-V 数据
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="chart-container" style="height: 260px; margin-top: 12px;">
+                                <canvas id="${powerCanvasId}"></canvas>
+                                <div class="chart-actions">
+                                    <button class="btn btn-secondary btn-sm" onclick="unitControlView.exportPowerTrend('${inverter.id}')">
+                                        <i class="fas fa-download"></i> 导出 功率数据
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- 关联组串 -->
                     <div class="detail-section">
                         <h4>关联组串 (${relatedStrings.length}路)</h4>
                         <div class="string-list">
-                            ${relatedStrings.map(string => `
+                            ${relatedStrings.length ? relatedStrings.map(string => `
                                 <div class="string-item ${string.status}" 
                                      onclick="unitControlView.showStringDetail('${string.id}')">
                                     <div class="string-header">
@@ -263,7 +311,7 @@ class UnitControlView {
                                         </div>
                                     </div>
                                 </div>
-                            `).join('')}
+                            `).join('') : '<div class="no-strings">未找到关联组串</div>'}
                         </div>
                     </div>
                 </div>
@@ -396,6 +444,9 @@ class UnitControlView {
     initCharts() {
         const data = window.systemData;
         
+        // 先销毁已有的离散度图（避免重复）
+        window.chartManager.destroyChart('discrepancy-chart');
+        
         // 离散度分析图
         const discrepancyData = {
             labels: data.devices.strings.map(s => s.id),
@@ -413,6 +464,11 @@ class UnitControlView {
             discrepancyData, 
             '组串电流离散度分析'
         );
+        
+        // 如果已选中逆变器，初始化该逆变器的图表
+        if (this.selectedInverter) {
+            setTimeout(() => this.initInverterCharts(this.selectedInverter), 50);
+        }
     }
     
     bindEvents() {
@@ -434,10 +490,22 @@ class UnitControlView {
         
         // 拓扑图动画
         const toggleAnimBtn = this.container.querySelector('#toggle-animation');
+        const diagram = this.container.querySelector('.topology-diagram');
         if (toggleAnimBtn) {
             toggleAnimBtn.addEventListener('click', () => {
                 this.toggleTopologyAnimation();
             });
+
+            // 恢复保存的动画状态（localStorage）
+            const stored = localStorage.getItem('topologyAnimating');
+            const isRunning = stored === 'true';
+            if (diagram && isRunning) {
+                diagram.classList.add('animating');
+                toggleAnimBtn.innerHTML = '<i class="fas fa-pause"></i> 暂停';
+            } else {
+                // 同步按钮显示状态
+                toggleAnimBtn.innerHTML = diagram && diagram.classList.contains('animating') ? '<i class="fas fa-pause"></i> 暂停' : '<i class="fas fa-play"></i> 动画';
+            }
         }
     }
     
@@ -500,6 +568,9 @@ class UnitControlView {
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-secondary" id="close-modal">关闭</button>
+                    <button class="btn btn-secondary" onclick="unitControlView.exportMaintenanceLog('${inverterId}')">
+                        <i class="fas fa-download"></i> 导出记录
+                    </button>
                     <button class="btn btn-primary" onclick="unitControlView.addMaintenanceRecord('${inverterId}')">
                         <i class="fas fa-plus"></i> 添加记录
                     </button>
@@ -703,16 +774,14 @@ class UnitControlView {
     }
     
     toggleTopologyAnimation() {
-        const flow = this.container.querySelector('.energy-flow');
+        const diagram = this.container.querySelector('.topology-diagram');
         const btn = this.container.querySelector('#toggle-animation');
-        
-        if (flow.style.animationPlayState === 'paused' || !flow.style.animationPlayState) {
-            flow.style.animationPlayState = 'running';
-            btn.innerHTML = '<i class="fas fa-pause"></i> 暂停';
-        } else {
-            flow.style.animationPlayState = 'paused';
-            btn.innerHTML = '<i class="fas fa-play"></i> 动画';
-        }
+        if (!diagram) return;
+
+        const isRunning = diagram.classList.toggle('animating');
+        // 持久化状态
+        try { localStorage.setItem('topologyAnimating', isRunning ? 'true' : 'false'); } catch (e) { /* ignore */ }
+        if (btn) btn.innerHTML = isRunning ? '<i class="fas fa-pause"></i> 暂停' : '<i class="fas fa-play"></i> 动画';
     }
     
     addMaintenanceRecord(inverterId) {
@@ -772,6 +841,119 @@ class UnitControlView {
     
     generateStringReport(stringId) {
         alert(`正在生成 ${stringId} 的详细报告...\n报告将包含：\n1. 电气参数分析\n2. 历史趋势\n3. 故障诊断建议\n4. 维护记录`);
+    }
+    
+    // 初始化逆变器相关图表（I-V 曲线与功率趋势）
+    initInverterCharts(inverter) {
+        if (!inverter) return;
+        const ivCanvasId = `${inverter.id}-iv-chart`;
+        const powerCanvasId = `${inverter.id}-power-chart`;
+        
+        // 销毁旧图表
+        window.chartManager.destroyChart(ivCanvasId);
+        window.chartManager.destroyChart(powerCanvasId);
+        
+        // 使用系统中预设的 I-V 数据，针对当前逆变器加一点随机扰动以模拟差异
+        const ivData = window.systemData.ivCurveData;
+        const healthy = ivData.healthy;
+        const faulty = ivData.shaded;
+        
+        const ivDatasets = [
+            {
+                label: '健康曲线',
+                data: healthy.voltage.map((v, i) => ({ x: v, y: healthy.current[i] + (Math.random()-0.5)*0.3 })),
+                color: '#2D862D'
+            },
+            {
+                label: `${inverter.id} 实测曲线`,
+                data: healthy.voltage.map((v, i) => ({ x: v, y: healthy.current[i] * (0.9 + Math.random()*0.2) })),
+                color: '#FF8C00'
+            },
+            {
+                label: '理论曲线',
+                data: healthy.voltage.map((v, i) => ({ x: v, y: healthy.current[i] * 0.95 })),
+                color: '#808080'
+            }
+        ];
+        
+        window.chartManager.createIVCurve(ivCanvasId, ivDatasets, `${inverter.id} - I-V 曲线`);
+        
+        // 生成功率趋势（过去24小时的小时点）
+        const labels = [];
+        const values = [];
+        for (let h = 23; h >= 0; h--) {
+            labels.push(`${h}:00`);
+            // 基于逆变器当前功率 +/- 随机波动
+            values.push(Math.max(0, inverter.power*1000 + (Math.random()-0.5)*50));
+        }
+        
+        window.chartManager.createPowerCurve(powerCanvasId, {
+            labels: labels.reverse(),
+            values: values.reverse(),
+            theoretical: values.map(v => v * 0.98)
+        }, `${inverter.id} - 功率趋势 (kW)`);
+    }
+    
+    exportIVCurve(inverterId) {
+        // 使用模拟数据导出 CSV
+        const data = window.systemData.ivCurveData;
+        let csv = 'Voltage(V),HealthyCurrent(A),MeasuredCurrent(A),TheoreticalCurrent(A)\n';
+        for (let i = 0; i < data.healthy.voltage.length; i++) {
+            const v = data.healthy.voltage[i];
+            const healthyI = data.healthy.current[i];
+            const measuredI = (healthyI * (0.9 + Math.random()*0.2)).toFixed(3);
+            const theoI = (healthyI * 0.95).toFixed(3);
+            csv += `${v},${healthyI},${measuredI},${theoI}\n`;
+        }
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${inverterId}_iv_curve.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        this.showToast('I-V曲线数据已导出', 'success');
+    }
+    
+    exportPowerTrend(inverterId) {
+        const chart = window.chartManager.charts.get(`${inverterId}-power-chart`);
+        if (!chart) {
+            this.showToast('未找到功率趋势数据', 'error');
+            return;
+        }
+        const labels = chart.data.labels;
+        const values = chart.data.datasets[0].data;
+        let csv = 'Time,Power(kW)\n';
+        labels.forEach((label, idx) => {
+            csv += `${label},${values[idx].toFixed(2)}\n`;
+        });
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${inverterId}_power_trend.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        this.showToast('功率趋势数据已导出', 'success');
+    }
+    
+    exportMaintenanceLog(inverterId) {
+        // 生成模拟维护记录并导出
+        const records = [
+            ['日期', '维护类型', '描述', '技术人员'],
+            ['2024-01-10','定期检查','清洁散热器，检查连接','张三'],
+            ['2023-12-05','故障维修','更换IGBT模块','李四'],
+            ['2023-09-15','软件升级','固件版本升级至v2.3.1','王五']
+        ];
+        const csv = records.map(r => r.join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${inverterId}_maintenance_log.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        this.showToast('维护记录已导出', 'success');
     }
     
     showToast(message, type = 'info') {
