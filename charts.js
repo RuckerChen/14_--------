@@ -71,10 +71,7 @@ class ChartManager {
             this.fallbackMode = false;
         }
 
-        // 降级模式：使用HTML/CSS模拟仪表盘
-        if (this.fallbackMode || !this.chartAvailable) {
-            return this.createFallbackGauge(elementId, value, maxValue, title, unit);
-        }
+        if (typeof Chart === 'undefined') return null;
         
         try {
             const ctx = element.getContext('2d');
@@ -197,21 +194,26 @@ class ChartManager {
         return null;
     }
     
-    // 创建I-V曲线图（带降级处理）
+// [charts.js] 修改 createIVCurve 函数
     createIVCurve(elementId, datasets, title) {
         const element = document.getElementById(elementId);
         if (!element) return null;
         
-        // 降级模式
-        if (this.fallbackMode || !this.chartAvailable) {
-            return this.createFallbackIVCurve(elementId, datasets, title);
+        // --- 修改开始：移除备用曲线调用 ---
+        // 如果 Chart.js 不可用，直接返回 null，不再尝试绘制备用曲线
+        if (typeof Chart === 'undefined' || this.fallbackMode || !this.chartAvailable) {
+            console.warn(`[ChartManager] Chart.js 未就绪，跳过绘制 I-V 曲线: ${elementId}`);
+            return null;
         }
+        // --- 修改结束 ---
         
         try {
             const ctx = element.getContext('2d');
-            if (!ctx) {
-                console.warn(`Canvas context not found for ${elementId}, using fallback`);
-                return this.createFallbackIVCurve(elementId, datasets, title);
+            
+            // 销毁旧实例（防止 ID 冲突）
+            const existingChart = Chart.getChart(element);
+            if (existingChart) {
+                existingChart.destroy();
             }
             
             const chart = new Chart(ctx, {
@@ -253,6 +255,7 @@ class ChartManager {
                     },
                     scales: {
                         x: {
+                            type: 'linear', // 确保 x 轴是线性刻度
                             title: {
                                 display: true,
                                 text: '电压 (V)',
@@ -280,7 +283,7 @@ class ChartManager {
             return chart;
         } catch (error) {
             console.error(`Error creating IV curve for ${elementId}:`, error);
-            return this.createFallbackIVCurve(elementId, datasets, title);
+            return null;
         }
     }
     
@@ -724,11 +727,7 @@ class ChartManager {
             return null; 
         }
 
-        // 2. 降级模式检查
-        if (this.fallbackMode || !this.chartAvailable) {
-            // 这里可以添加降级逻辑，或者直接返回
-            return null;
-        }
+        if (typeof Chart === 'undefined') return null;
 
         try {
             const ctx = element.getContext('2d');
