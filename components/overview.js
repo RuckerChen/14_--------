@@ -2,10 +2,20 @@ class OverviewView {
     constructor() {
         this.container = document.getElementById('overview-view');
         this.chartManager = window.chartManager;
+        this.eventListeners = new Map(); // 用于跟踪事件监听器
+        this.renderCount = 0; // 渲染次数计数器
+        this.eventCount = 0; // 事件绑定次数计数器
     }
     
     render() {
         const data = window.systemData;
+        this.renderCount++;
+        
+        // 调试日志：显示渲染次数
+        console.log(`[OverviewView] 第${this.renderCount}次渲染开始，当前事件监听器数量: ${this.eventListeners.size}`);
+        
+        // 清理之前的事件监听器
+        this.cleanupEventListeners();
         
         this.container.innerHTML = `
             <div class="overview-container">
@@ -467,10 +477,37 @@ class OverviewView {
         window.chartManager.charts.set('performance-chart', performanceChart);
     }
     
+    // 清理事件监听器
+    cleanupEventListeners() {
+        console.log(`[OverviewView] 清理事件监听器，当前数量: ${this.eventListeners.size}`);
+        this.eventListeners.forEach((listener, element) => {
+            if (element && listener) {
+                element.removeEventListener(listener.type, listener.handler);
+            }
+        });
+        this.eventListeners.clear();
+        this.eventCount = 0;
+    }
+    
+    // 添加事件监听器并跟踪
+    addEventListener(element, type, handler) {
+        if (!element) return;
+        
+        this.eventCount++;
+        const listenerId = `${type}-${this.eventCount}`;
+        element.addEventListener(type, handler);
+        this.eventListeners.set(element, { type, handler, id: listenerId });
+        
+        console.log(`[OverviewView] 添加事件监听器: ${listenerId}, 元素: ${element.tagName}.${element.className || element.id || ''}`);
+    }
+    
     bindEvents() {
+        console.log(`[OverviewView] 开始绑定事件，热力图单元格数量: ${this.container.querySelectorAll('.heatmap-cell').length}`);
+        
         // 热力图单元格点击
         this.container.querySelectorAll('.heatmap-cell').forEach(cell => {
-            cell.addEventListener('click', (e) => {
+            this.addEventListener(cell, 'click', (e) => {
+                console.log(`[OverviewView] 热力图单元格点击: row=${e.target.dataset.row}, col=${e.target.dataset.col}`);
                 const row = e.target.dataset.row;
                 const col = e.target.dataset.col;
                 const power = e.target.dataset.power;
@@ -480,16 +517,18 @@ class OverviewView {
         
         // 报警确认
         this.container.querySelectorAll('.ack-alarm').forEach(btn => {
-            btn.addEventListener('click', (e) => {
+            this.addEventListener(btn, 'click', (e) => {
                 const alarmId = e.target.closest('.ack-alarm').dataset.id;
+                console.log(`[OverviewView] 确认报警: ${alarmId}`);
                 this.acknowledgeAlarm(alarmId);
             });
         });
         
         // 查看报警详情
         this.container.querySelectorAll('.view-details').forEach(btn => {
-            btn.addEventListener('click', (e) => {
+            this.addEventListener(btn, 'click', (e) => {
                 const alarmId = e.target.closest('.view-details').dataset.id;
+                console.log(`[OverviewView] 查看报警详情: ${alarmId}`);
                 this.showAlarmDetails(alarmId);
             });
         });
@@ -497,7 +536,8 @@ class OverviewView {
         // 全部确认按钮
         const ackAllBtn = this.container.querySelector('#ack-all-alarms');
         if (ackAllBtn) {
-            ackAllBtn.addEventListener('click', () => {
+            this.addEventListener(ackAllBtn, 'click', () => {
+                console.log(`[OverviewView] 确认所有报警`);
                 this.acknowledgeAllAlarms();
             });
         }
@@ -505,7 +545,8 @@ class OverviewView {
         // 设备详情按钮
         const deviceDetailsBtn = this.container.querySelector('#device-details');
         if (deviceDetailsBtn) {
-            deviceDetailsBtn.addEventListener('click', () => {
+            this.addEventListener(deviceDetailsBtn, 'click', () => {
+                console.log(`[OverviewView] 切换到组串控制视图`);
                 // 切换到二级显示
                 document.querySelector('[data-view="unit-control"]').click();
             });
@@ -514,10 +555,13 @@ class OverviewView {
         // 刷新地图按钮
         const refreshMapBtn = this.container.querySelector('#refresh-map');
         if (refreshMapBtn) {
-            refreshMapBtn.addEventListener('click', () => {
+            this.addEventListener(refreshMapBtn, 'click', () => {
+                console.log(`[OverviewView] 刷新热力图`);
                 this.refreshHeatmap();
             });
         }
+        
+        console.log(`[OverviewView] 事件绑定完成，总事件监听器数量: ${this.eventListeners.size}`);
     }
     
     showArrayDetails(row, col, power) {
@@ -529,16 +573,47 @@ class OverviewView {
         const alarm = window.systemData.alarms.list.find(a => a.id === alarmId);
         if (alarm) {
             alarm.acknowledged = true;
-            this.render(); // 重新渲染
+            console.log(`[OverviewView] 报警 ${alarmId} 已确认，更新UI而不是完全重新渲染`);
+            
+            // 只更新相关的UI元素，而不是完全重新渲染
+            this.updateAlarmUI(alarmId);
             this.showToast('报警已确认', 'success');
         }
     }
     
+    // 更新报警UI而不完全重新渲染
+    updateAlarmUI(alarmId) {
+        const alarmItem = this.container.querySelector(`.ack-alarm[data-id="${alarmId}"]`)?.closest('.alarm-item');
+        if (alarmItem) {
+            // 移除确认按钮
+            const ackBtn = alarmItem.querySelector('.ack-alarm');
+            if (ackBtn) {
+                ackBtn.remove();
+            }
+            
+            // 更新样式
+            alarmItem.classList.remove('unacknowledged');
+            
+            console.log(`[OverviewView] 报警 ${alarmId} UI已更新`);
+        }
+    }
+    
     acknowledgeAllAlarms() {
+        console.log(`[OverviewView] 确认所有报警`);
         window.systemData.alarms.list.forEach(alarm => {
             alarm.acknowledged = true;
         });
-        this.render();
+        
+        // 更新所有报警UI
+        this.container.querySelectorAll('.ack-alarm').forEach(btn => {
+            const alarmId = btn.dataset.id;
+            const alarmItem = btn.closest('.alarm-item');
+            if (alarmItem) {
+                btn.remove();
+                alarmItem.classList.remove('unacknowledged');
+            }
+        });
+        
         this.showToast('所有报警已确认', 'success');
     }
     

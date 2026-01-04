@@ -1,3 +1,54 @@
+// 在文件顶部添加Chart.js加载状态检查
+let chartJsLoaded = false;
+
+// 修改初始化函数
+async function init() {
+    console.log('[App] 初始化开始');
+    
+    // 等待Chart.js加载完成
+    await waitForChartJs();
+    
+    // 初始化视图管理器
+    viewManager = new ViewManager();
+    
+    // 设置初始视图
+    const initialView = 'overview';
+    await viewManager.switchView(initialView);
+    
+    console.log('[App] 初始化完成');
+}
+
+// 添加Chart.js等待函数
+function waitForChartJs() {
+    return new Promise((resolve) => {
+        if (typeof Chart !== 'undefined') {
+            chartJsLoaded = true;
+            console.log('[App] Chart.js已加载');
+            resolve();
+            return;
+        }
+        
+        // 检查Chart.js是否正在加载
+        const checkInterval = setInterval(() => {
+            if (typeof Chart !== 'undefined') {
+                chartJsLoaded = true;
+                clearInterval(checkInterval);
+                console.log('[App] Chart.js加载完成');
+                resolve();
+            }
+        }, 100);
+        
+        // 设置超时
+        setTimeout(() => {
+            if (!chartJsLoaded) {
+                clearInterval(checkInterval);
+                console.warn('[App] Chart.js加载超时，继续初始化');
+                resolve();
+            }
+        }, 5000);
+    });
+}
+
 // 主应用控制器
 class PVFaultDetectionApp {
     constructor() {
@@ -9,13 +60,27 @@ class PVFaultDetectionApp {
             support: window.supportView || new SupportView()
         };
         
+        // 定时器管理
+        this.timers = {
+            timeUpdate: null,
+            shutdownProgress: null,
+            scanProgress: null,
+            reportProgress: null
+        };
+        
+        // 标签页可见性状态
+        this.isTabVisible = true;
+        
         this.init();
     }
     
     init() {
+        // 初始化标签页可见性监听
+        this.initPageVisibility();
+        
         // 初始化时间显示
         this.updateTime();
-        setInterval(() => this.updateTime(), 1000);
+        this.timers.timeUpdate = setInterval(() => this.updateTime(), 1000);
         
         // 绑定导航标签事件
         this.bindNavTabs();
@@ -28,6 +93,84 @@ class PVFaultDetectionApp {
         
         // 渲染初始视图
         this.switchView('overview');
+    }
+    
+    // 初始化标签页可见性监听
+    initPageVisibility() {
+        // 标准API
+        const visibilityChange = () => {
+            this.isTabVisible = !document.hidden;
+            this.onVisibilityChange(this.isTabVisible);
+        };
+        
+        // 兼容性处理
+        if (typeof document.hidden !== "undefined") {
+            document.addEventListener("visibilitychange", visibilityChange);
+        } else if (typeof document.msHidden !== "undefined") {
+            document.addEventListener("msvisibilitychange", visibilityChange);
+        } else if (typeof document.webkitHidden !== "undefined") {
+            document.addEventListener("webkitvisibilitychange", visibilityChange);
+        }
+        
+        // 页面卸载时清理
+        window.addEventListener('beforeunload', () => {
+            this.cleanupAllTimers();
+        });
+    }
+    
+    // 标签页可见性变化处理
+    onVisibilityChange(isVisible) {
+        console.log(`标签页${isVisible ? '活跃' : '不活跃'}`);
+        
+        if (isVisible) {
+            // 恢复必要定时器
+            if (!this.timers.timeUpdate) {
+                this.timers.timeUpdate = setInterval(() => this.updateTime(), 1000);
+            }
+        } else {
+            // 暂停非必要定时器
+            this.pauseNonEssentialTimers();
+        }
+    }
+    
+    // 暂停非必要定时器
+    pauseNonEssentialTimers() {
+        // 时间更新定时器可以保留，但可以降低频率
+        if (this.timers.timeUpdate) {
+            clearInterval(this.timers.timeUpdate);
+            this.timers.timeUpdate = setInterval(() => this.updateTime(), 5000); // 降低到5秒一次
+        }
+        
+        // 暂停模态框中的动画定时器
+        this.pauseModalAnimations();
+    }
+    
+    // 暂停模态框动画
+    pauseModalAnimations() {
+        // 这里可以添加暂停模态框动画的逻辑
+        // 由于模态框定时器是局部变量，需要在创建时添加可见性检查
+    }
+    
+    // 清理所有定时器
+    cleanupAllTimers() {
+        Object.values(this.timers).forEach(timer => {
+            if (timer) clearInterval(timer);
+        });
+        
+        // 清理模态框定时器
+        this.cleanupModalTimers();
+    }
+    
+    // 清理模态框定时器
+    cleanupModalTimers() {
+        // 查找并清理所有模态框中的定时器
+        const modals = document.querySelectorAll('.modal');
+        modals.forEach(modal => {
+            const progressInterval = modal.dataset.progressInterval;
+            if (progressInterval) {
+                clearInterval(parseInt(progressInterval));
+            }
+        });
     }
     
     updateTime() {

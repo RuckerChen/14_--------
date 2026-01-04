@@ -2,135 +2,550 @@
 class ChartManager {
     constructor() {
         this.charts = new Map();
+        this.chartAvailable = typeof Chart !== 'undefined';
+        this.fallbackMode = false;
+        
+        if (!this.chartAvailable) {
+            console.warn('Chart.js not available, using fallback mode');
+            this.fallbackMode = true;
+            this.initFallbackStyles();
+        }
     }
     
-    // 创建KPI仪表盘
+    // 初始化降级样式
+    initFallbackStyles() {
+        const style = document.createElement('style');
+        style.textContent = `
+            .chart-fallback {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                height: 100%;
+                background: #f8f9fa;
+                border-radius: 8px;
+                padding: 20px;
+                text-align: center;
+            }
+            .fallback-icon {
+                font-size: 48px;
+                color: #ccc;
+                margin-bottom: 15px;
+            }
+            .fallback-text {
+                color: #666;
+                font-size: 14px;
+                margin-bottom: 10px;
+            }
+            .fallback-value {
+                font-size: 24px;
+                font-weight: bold;
+                color: #333;
+                margin: 10px 0;
+            }
+            .fallback-progress {
+                width: 100%;
+                height: 10px;
+                background: #e0e0e0;
+                border-radius: 5px;
+                overflow: hidden;
+                margin: 15px 0;
+            }
+            .fallback-progress-bar {
+                height: 100%;
+                background: #2D862D;
+                border-radius: 5px;
+                transition: width 0.3s ease;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    // 创建KPI仪表盘（带降级处理）
     createKPIGauge(elementId, value, maxValue, title, unit = '') {
-        const ctx = document.getElementById(elementId).getContext('2d');
+        const element = document.getElementById(elementId);
+        if (!element) return null;
         
-        // 根据值确定颜色
-        let color;
-        const percentage = (value / maxValue) * 100;
-        if (percentage >= 90) color = '#2D862D'; // 正常
-        else if (percentage >= 70) color = '#FFD700'; // 警告
-        else color = '#FF0000'; // 危险
+        // 降级模式：使用HTML/CSS模拟仪表盘
+        if (this.fallbackMode || !this.chartAvailable) {
+            return this.createFallbackGauge(elementId, value, maxValue, title, unit);
+        }
         
-        const chart = new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                datasets: [{
-                    data: [value, maxValue - value],
-                    backgroundColor: [color, '#F0F0F0'],
-                    borderWidth: 0,
-                    circumference: 270,
-                    rotation: 135
+        try {
+            const ctx = element.getContext('2d');
+            if (!ctx) {
+                console.warn(`Canvas context not found for ${elementId}, using fallback`);
+                return this.createFallbackGauge(elementId, value, maxValue, title, unit);
+            }
+            
+            // 根据值确定颜色
+            let color;
+            const percentage = (value / maxValue) * 100;
+            if (percentage >= 90) color = '#2D862D'; // 正常
+            else if (percentage >= 70) color = '#FFD700'; // 警告
+            else color = '#FF0000'; // 危险
+            
+            const chart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    datasets: [{
+                        data: [value, maxValue - value],
+                        backgroundColor: [color, '#F0F0F0'],
+                        borderWidth: 0,
+                        circumference: 270,
+                        rotation: 135
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '80%',
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { enabled: false }
+                    }
+                },
+                plugins: [{
+                    id: 'gaugeCenterText',
+                    afterDraw(chart) {
+                        const { ctx, chartArea: { width, height } } = chart;
+                        ctx.save();
+                        
+                        const text = `${value}${unit}`;
+                        const subText = title;
+                        
+                        ctx.font = 'bold 24px Segoe UI';
+                        ctx.fillStyle = '#333333';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(text, width / 2, height / 2 - 10);
+                        
+                        ctx.font = '12px Segoe UI';
+                        ctx.fillStyle = '#666666';
+                        ctx.fillText(subText, width / 2, height / 2 + 20);
+                        
+                        ctx.restore();
+                    }
                 }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                cutout: '80%',
-                plugins: {
-                    legend: { display: false },
-                    tooltip: { enabled: false }
-                }
-            },
-            plugins: [{
-                id: 'gaugeCenterText',
-                afterDraw(chart) {
-                    const { ctx, chartArea: { width, height } } = chart;
-                    ctx.save();
-                    
-                    const text = `${value}${unit}`;
-                    const subText = title;
-                    
-                    ctx.font = 'bold 24px Segoe UI';
-                    ctx.fillStyle = '#333333';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText(text, width / 2, height / 2 - 10);
-                    
-                    ctx.font = '12px Segoe UI';
-                    ctx.fillStyle = '#666666';
-                    ctx.fillText(subText, width / 2, height / 2 + 20);
-                    
-                    ctx.restore();
-                }
-            }]
-        });
-        
-        this.charts.set(elementId, chart);
-        return chart;
+            });
+            
+            this.charts.set(elementId, chart);
+            return chart;
+        } catch (error) {
+            console.error(`Error creating chart for ${elementId}:`, error);
+            return this.createFallbackGauge(elementId, value, maxValue, title, unit);
+        }
     }
     
-    // 创建I-V曲线图
-    createIVCurve(elementId, datasets, title) {
-        const ctx = document.getElementById(elementId).getContext('2d');
+    // 降级模式：HTML/CSS模拟仪表盘
+    createFallbackGauge(elementId, value, maxValue, title, unit = '') {
+        const element = document.getElementById(elementId);
+        if (!element) return null;
         
-        const chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                datasets: datasets.map((dataset, index) => ({
-                    label: dataset.label,
-                    data: dataset.data,
-                    borderColor: dataset.color || this.getColor(index),
-                    backgroundColor: dataset.fill ? `${this.getColor(index)}20` : 'transparent',
-                    borderWidth: 3,
-                    fill: dataset.fill || false,
-                    tension: 0.4,
-                    pointRadius: 0
-                }))
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    title: {
-                        display: true,
-                        text: title,
-                        font: { size: 16, weight: 'bold' }
-                    },
-                    legend: {
-                        position: 'top',
-                        labels: { font: { size: 12 } }
-                    },
-                    tooltip: {
-                        mode: 'index',
-                        intersect: false,
-                        callbacks: {
-                            label: (context) => {
-                                return `${context.dataset.label}: V=${context.parsed.x}V, I=${context.parsed.y}A`;
+        // 如果是canvas元素，替换为div
+        if (element.tagName === 'CANVAS') {
+            const parent = element.parentElement;
+            const fallbackDiv = document.createElement('div');
+            fallbackDiv.className = 'chart-fallback';
+            fallbackDiv.id = `${elementId}-fallback`;
+            
+            const percentage = Math.round((value / maxValue) * 100);
+            let statusColor = '#2D862D';
+            let statusText = '正常';
+            
+            if (percentage >= 90) {
+                statusColor = '#2D862D';
+                statusText = '正常';
+            } else if (percentage >= 70) {
+                statusColor = '#FFD700';
+                statusText = '警告';
+            } else {
+                statusColor = '#FF0000';
+                statusText = '危险';
+            }
+            
+            fallbackDiv.innerHTML = `
+                <div class="fallback-icon">
+                    <i class="fas fa-chart-pie"></i>
+                </div>
+                <div class="fallback-value">${value}${unit}</div>
+                <div class="fallback-text">${title}</div>
+                <div class="fallback-progress">
+                    <div class="fallback-progress-bar" style="width: ${percentage}%; background: ${statusColor};"></div>
+                </div>
+                <div class="fallback-text">${percentage}% - ${statusText}</div>
+            `;
+            
+            parent.replaceChild(fallbackDiv, element);
+            return {
+                destroy: () => fallbackDiv.remove(),
+                update: (newValue) => {
+                    const newPercentage = Math.round((newValue / maxValue) * 100);
+                    fallbackDiv.querySelector('.fallback-value').textContent = `${newValue}${unit}`;
+                    fallbackDiv.querySelector('.fallback-progress-bar').style.width = `${newPercentage}%`;
+                    fallbackDiv.querySelector('.fallback-text:last-child').textContent =
+                        `${newPercentage}% - ${statusText}`;
+                }
+            };
+        }
+        
+        return null;
+    }
+    
+    // 创建I-V曲线图（带降级处理）
+    createIVCurve(elementId, datasets, title) {
+        const element = document.getElementById(elementId);
+        if (!element) return null;
+        
+        // 降级模式
+        if (this.fallbackMode || !this.chartAvailable) {
+            return this.createFallbackIVCurve(elementId, datasets, title);
+        }
+        
+        try {
+            const ctx = element.getContext('2d');
+            if (!ctx) {
+                console.warn(`Canvas context not found for ${elementId}, using fallback`);
+                return this.createFallbackIVCurve(elementId, datasets, title);
+            }
+            
+            const chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    datasets: datasets.map((dataset, index) => ({
+                        label: dataset.label,
+                        data: dataset.data,
+                        borderColor: dataset.color || this.getColor(index),
+                        backgroundColor: dataset.fill ? `${this.getColor(index)}20` : 'transparent',
+                        borderWidth: 3,
+                        fill: dataset.fill || false,
+                        tension: 0.4,
+                        pointRadius: 0
+                    }))
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: title,
+                            font: { size: 16, weight: 'bold' }
+                        },
+                        legend: {
+                            position: 'top',
+                            labels: { font: { size: 12 } }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: (context) => {
+                                    return `${context.dataset.label}: V=${context.parsed.x}V, I=${context.parsed.y}A`;
+                                }
                             }
                         }
-                    }
-                },
-                scales: {
-                    x: {
-                        title: {
-                            display: true,
-                            text: '电压 (V)',
-                            font: { size: 14, weight: 'bold' }
-                        },
-                        grid: { color: 'rgba(0,0,0,0.1)' }
                     },
-                    y: {
-                        title: {
-                            display: true,
-                            text: '电流 (A)',
-                            font: { size: 14, weight: 'bold' }
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: '电压 (V)',
+                                font: { size: 14, weight: 'bold' }
+                            },
+                            grid: { color: 'rgba(0,0,0,0.1)' }
                         },
-                        grid: { color: 'rgba(0,0,0,0.1)' }
+                        y: {
+                            title: {
+                                display: true,
+                                text: '电流 (A)',
+                                font: { size: 14, weight: 'bold' }
+                            },
+                            grid: { color: 'rgba(0,0,0,0.1)' }
+                        }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
                     }
-                },
-                interaction: {
-                    intersect: false,
-                    mode: 'index'
                 }
-            }
-        });
+            });
+            
+            this.charts.set(elementId, chart);
+            return chart;
+        } catch (error) {
+            console.error(`Error creating IV curve for ${elementId}:`, error);
+            return this.createFallbackIVCurve(elementId, datasets, title);
+        }
+    }
+    
+    // 降级模式：使用备用图表绘制I-V曲线
+    createFallbackIVCurve(elementId, datasets, title) {
+        const element = document.getElementById(elementId);
+        if (!element) return null;
         
-        this.charts.set(elementId, chart);
-        return chart;
+        if (element.tagName === 'CANVAS') {
+            try {
+                // 检查是否有备用图表实现
+                if (typeof Chart !== 'undefined') {
+                    const ctx = element.getContext('2d');
+                    if (!ctx) {
+                        throw new Error('Canvas context not available');
+                    }
+                    
+                    // 转换数据格式为备用图表所需的格式
+                    const chartDatasets = datasets.map((dataset, index) => ({
+                        label: dataset.label,
+                        data: dataset.data.map(point => ({
+                            x: point.x,
+                            y: point.y
+                        })),
+                        borderColor: dataset.color || this.getColor(index),
+                        backgroundColor: dataset.fill ? `${this.getColor(index)}20` : 'transparent',
+                        borderWidth: 3,
+                        fill: dataset.fill || false,
+                        tension: 0.4
+                    }));
+                    
+                    // 创建备用图表
+                    const chart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            datasets: chartDatasets
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: title + ' (备用模式)',
+                                    font: { size: 16, weight: 'bold' }
+                                },
+                                legend: {
+                                    position: 'top',
+                                    labels: { font: { size: 12 } }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    title: {
+                                        display: true,
+                                        text: '电压 (V)',
+                                        font: { size: 14, weight: 'bold' }
+                                    },
+                                    grid: { color: 'rgba(0,0,0,0.1)' }
+                                },
+                                y: {
+                                    title: {
+                                        display: true,
+                                        text: '电流 (A)',
+                                        font: { size: 14, weight: 'bold' }
+                                    },
+                                    grid: { color: 'rgba(0,0,0,0.1)' }
+                                }
+                            }
+                        }
+                    });
+                    
+                    this.charts.set(elementId, chart);
+                    return chart;
+                } else {
+                    // 如果连备用图表都没有，则显示简单的SVG折线图
+                    return this.createSimpleSVGIVCurve(elementId, datasets, title);
+                }
+            } catch (error) {
+                console.error('Error creating fallback IV curve:', error);
+                // 如果备用图表也失败，则显示简单的SVG折线图
+                return this.createSimpleSVGIVCurve(elementId, datasets, title);
+            }
+        }
+        
+        return null;
+    }
+    
+    // 创建简单的SVG折线图作为最终备用方案
+    createSimpleSVGIVCurve(elementId, datasets, title) {
+        const element = document.getElementById(elementId);
+        if (!element) return null;
+        
+        const parent = element.parentElement;
+        const container = document.createElement('div');
+        container.className = 'chart-fallback';
+        container.id = `${elementId}-fallback`;
+        container.style.height = '100%';
+        container.style.position = 'relative';
+        
+        // 创建SVG元素
+        const svgNS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(svgNS, 'svg');
+        svg.setAttribute('width', '100%');
+        svg.setAttribute('height', '100%');
+        svg.setAttribute('viewBox', '0 0 800 400');
+        svg.style.backgroundColor = '#f8f9fa';
+        svg.style.borderRadius = '8px';
+        
+        // 添加标题
+        const titleText = document.createElementNS(svgNS, 'text');
+        titleText.setAttribute('x', '400');
+        titleText.setAttribute('y', '30');
+        titleText.setAttribute('text-anchor', 'middle');
+        titleText.setAttribute('font-size', '16');
+        titleText.setAttribute('font-weight', 'bold');
+        titleText.setAttribute('fill', '#333');
+        titleText.textContent = title + ' (SVG备用)';
+        svg.appendChild(titleText);
+        
+        // 绘制坐标轴
+        const drawAxis = () => {
+            // X轴
+            const xAxis = document.createElementNS(svgNS, 'line');
+            xAxis.setAttribute('x1', '50');
+            xAxis.setAttribute('y1', '350');
+            xAxis.setAttribute('x2', '750');
+            xAxis.setAttribute('y2', '350');
+            xAxis.setAttribute('stroke', '#666');
+            xAxis.setAttribute('stroke-width', '2');
+            svg.appendChild(xAxis);
+            
+            // Y轴
+            const yAxis = document.createElementNS(svgNS, 'line');
+            yAxis.setAttribute('x1', '50');
+            yAxis.setAttribute('y1', '50');
+            yAxis.setAttribute('x2', '50');
+            yAxis.setAttribute('y2', '350');
+            yAxis.setAttribute('stroke', '#666');
+            yAxis.setAttribute('stroke-width', '2');
+            svg.appendChild(yAxis);
+            
+            // X轴标签
+            const xLabel = document.createElementNS(svgNS, 'text');
+            xLabel.setAttribute('x', '400');
+            xLabel.setAttribute('y', '390');
+            xLabel.setAttribute('text-anchor', 'middle');
+            xLabel.setAttribute('font-size', '14');
+            xLabel.setAttribute('fill', '#333');
+            xLabel.textContent = '电压 (V)';
+            svg.appendChild(xLabel);
+            
+            // Y轴标签
+            const yLabel = document.createElementNS(svgNS, 'text');
+            yLabel.setAttribute('x', '20');
+            yLabel.setAttribute('y', '200');
+            yLabel.setAttribute('text-anchor', 'middle');
+            yLabel.setAttribute('transform', 'rotate(-90, 20, 200)');
+            yLabel.setAttribute('font-size', '14');
+            yLabel.setAttribute('fill', '#333');
+            yLabel.textContent = '电流 (A)';
+            svg.appendChild(yLabel);
+        };
+        
+        // 绘制网格
+        const drawGrid = () => {
+            // 垂直网格线
+            for (let i = 1; i < 10; i++) {
+                const gridLine = document.createElementNS(svgNS, 'line');
+                gridLine.setAttribute('x1', 50 + i * 70);
+                gridLine.setAttribute('y1', '50');
+                gridLine.setAttribute('x2', 50 + i * 70);
+                gridLine.setAttribute('y2', '350');
+                gridLine.setAttribute('stroke', 'rgba(0,0,0,0.1)');
+                gridLine.setAttribute('stroke-width', '1');
+                svg.appendChild(gridLine);
+            }
+            
+            // 水平网格线
+            for (let i = 1; i < 6; i++) {
+                const gridLine = document.createElementNS(svgNS, 'line');
+                gridLine.setAttribute('x1', '50');
+                gridLine.setAttribute('y1', 50 + i * 50);
+                gridLine.setAttribute('x2', '750');
+                gridLine.setAttribute('y2', 50 + i * 50);
+                gridLine.setAttribute('stroke', 'rgba(0,0,0,0.1)');
+                gridLine.setAttribute('stroke-width', '1');
+                svg.appendChild(gridLine);
+            }
+        };
+        
+        // 绘制数据线
+        const drawDataLines = () => {
+            const colors = ['#2D862D', '#FF8C00', '#00BFFF', '#808080'];
+            
+            datasets.forEach((dataset, datasetIndex) => {
+                const data = dataset.data;
+                if (data.length === 0) return;
+                
+                // 创建折线路径
+                let pathData = '';
+                data.forEach((point, pointIndex) => {
+                    const x = 50 + (point.x / 650) * 700; // 假设最大电压650V
+                    const y = 350 - (point.y / 10) * 300; // 假设最大电流10A
+                    
+                    if (pointIndex === 0) {
+                        pathData = `M ${x},${y}`;
+                    } else {
+                        pathData += ` L ${x},${y}`;
+                    }
+                });
+                
+                const path = document.createElementNS(svgNS, 'path');
+                path.setAttribute('d', pathData);
+                path.setAttribute('fill', 'none');
+                path.setAttribute('stroke', colors[datasetIndex % colors.length]);
+                path.setAttribute('stroke-width', '3');
+                path.setAttribute('stroke-linejoin', 'round');
+                path.setAttribute('stroke-linecap', 'round');
+                svg.appendChild(path);
+                
+                // 添加图例
+                const legendX = 600;
+                const legendY = 80 + datasetIndex * 25;
+                
+                const legendLine = document.createElementNS(svgNS, 'line');
+                legendLine.setAttribute('x1', legendX);
+                legendLine.setAttribute('y1', legendY);
+                legendLine.setAttribute('x2', legendX + 30);
+                legendLine.setAttribute('y2', legendY);
+                legendLine.setAttribute('stroke', colors[datasetIndex % colors.length]);
+                legendLine.setAttribute('stroke-width', '3');
+                svg.appendChild(legendLine);
+                
+                const legendText = document.createElementNS(svgNS, 'text');
+                legendText.setAttribute('x', legendX + 40);
+                legendText.setAttribute('y', legendY + 5);
+                legendText.setAttribute('font-size', '12');
+                legendText.setAttribute('fill', '#333');
+                legendText.textContent = dataset.label;
+                svg.appendChild(legendText);
+            });
+        };
+        
+        drawAxis();
+        drawGrid();
+        drawDataLines();
+        
+        container.appendChild(svg);
+        
+        // 添加说明文本
+        const infoText = document.createElement('div');
+        infoText.style.position = 'absolute';
+        infoText.style.bottom = '10px';
+        infoText.style.left = '0';
+        infoText.style.right = '0';
+        infoText.style.textAlign = 'center';
+        infoText.style.fontSize = '12px';
+        infoText.style.color = '#666';
+        infoText.textContent = '使用SVG绘制的I-V曲线（备用模式）';
+        container.appendChild(infoText);
+        
+        parent.replaceChild(container, element);
+        
+        return {
+            destroy: () => container.remove(),
+            update: () => {
+                console.warn('SVG fallback IV curve does not support dynamic updates');
+            }
+        };
     }
     
     // 创建功率曲线图

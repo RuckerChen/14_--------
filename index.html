@@ -6,8 +6,139 @@
     <title>高性能微电网光伏系统故障检测界面</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <!-- Chart.js with fallback and error handling -->
+    <script>
+        (function() {
+            function loadChartJS() {
+                return new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = 'https://cdn.jsdelivr.net/npm/chart.js?noSourceMap'; // 禁用源映射
+                    script.onload = () => {
+                        console.log('Chart.js loaded successfully from CDN');
+                        resolve();
+                    };
+                    script.onerror = () => {
+                        console.warn('Chart.js CDN failed, trying alternative CDN...');
+                        loadAlternativeChartJS().then(resolve).catch(reject);
+                    };
+                    document.head.appendChild(script);
+                });
+            }
+            
+            function loadAlternativeChartJS() {
+                return new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = 'https://unpkg.com/chart.js@3.9.1/dist/chart.min.js';
+                    script.onload = () => {
+                        console.log('Chart.js loaded from alternative CDN');
+                        resolve();
+                    };
+                    script.onerror = () => {
+                        console.warn('All Chart.js CDN sources failed, loading local fallback...');
+                        loadLocalFallback().then(resolve).catch(reject);
+                    };
+                    document.head.appendChild(script);
+                });
+            }
+            
+            function loadLocalFallback() {
+                return new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = 'chart-fallback.js';
+                    script.onload = () => {
+                        console.log('Chart.js local fallback loaded');
+                        // 标记为降级模式
+                        if (window.chartManager) {
+                            window.chartManager.chartAvailable = true;
+                            window.chartManager.fallbackMode = true;
+                        }
+                        resolve();
+                    };
+                    script.onerror = () => {
+                        console.error('Failed to load local fallback');
+                        reject(new Error('Failed to load any Chart.js implementation'));
+                    };
+                    document.head.appendChild(script);
+                });
+            }
+            
+            // 延迟加载Chart.js，避免阻塞页面渲染
+            window.addEventListener('DOMContentLoaded', () => {
+                setTimeout(() => {
+                    loadChartJS().catch(err => {
+                        console.error('Chart.js加载失败:', err);
+                        // 显示用户友好的警告
+                        showChartLoadWarning();
+                    });
+                }, 100);
+            });
+            
+            function showChartLoadWarning() {
+                // 在页面顶部显示非侵入式警告
+                const warning = document.createElement('div');
+                warning.style.cssText = `
+                    position: fixed;
+                    top: 10px;
+                    right: 10px;
+                    background: #fff3cd;
+                    border: 1px solid #ffeaa7;
+                    border-radius: 4px;
+                    padding: 10px 15px;
+                    font-size: 12px;
+                    color: #856404;
+                    z-index: 9999;
+                    max-width: 300px;
+                    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                `;
+                warning.innerHTML = `
+                    <div style="font-weight: bold; margin-bottom: 5px;">
+                        <i class="fas fa-exclamation-triangle"></i> 图表功能受限
+                    </div>
+                    <div>网络连接问题导致图表库加载失败，使用简化模式显示数据。</div>
+                `;
+                document.body.appendChild(warning);
+                
+                // 5秒后自动隐藏
+                setTimeout(() => {
+                    warning.style.opacity = '0';
+                    warning.style.transition = 'opacity 0.5s';
+                    setTimeout(() => warning.remove(), 500);
+                }, 5000);
+            }
+        })();
+    </script>
+    
+    <!-- ECharts with error handling -->
+    <script>
+        (function() {
+            function loadECharts() {
+                return new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = 'https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js';
+                    script.onload = resolve;
+                    script.onerror = () => {
+                        console.warn('ECharts CDN failed, trying alternative...');
+                        loadAlternativeECharts().then(resolve).catch(reject);
+                    };
+                    document.head.appendChild(script);
+                });
+            }
+            
+            function loadAlternativeECharts() {
+                return new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = 'https://unpkg.com/echarts@5.4.3/dist/echarts.min.js';
+                    script.onload = resolve;
+                    script.onerror = reject;
+                    document.head.appendChild(script);
+                });
+            }
+            
+            window.addEventListener('DOMContentLoaded', () => {
+                setTimeout(loadECharts, 200);
+            });
+        })();
+    </script>
 </head>
 <body>
     <!-- 顶部导航栏 -->
