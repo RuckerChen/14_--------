@@ -2,12 +2,11 @@
 class ChartManager {
     constructor() {
         this.charts = new Map();
+        // 初始化时检查一次，后续由 app.js 更新
         this.chartAvailable = typeof Chart !== 'undefined';
-        this.fallbackMode = false;
+        this.fallbackMode = !this.chartAvailable; 
         
-        if (!this.chartAvailable) {
-            console.warn('Chart.js not available, using fallback mode');
-            this.fallbackMode = true;
+        if (this.fallbackMode) {
             this.initFallbackStyles();
         }
     }
@@ -66,6 +65,12 @@ class ChartManager {
         const element = document.getElementById(elementId);
         if (!element) return null;
         
+        // 如果全局 Chart 对象突然有了（因为异步加载完成了），尝试更新状态
+        if (typeof Chart !== 'undefined' && !this.chartAvailable) {
+            this.chartAvailable = true;
+            this.fallbackMode = false;
+        }
+
         // 降级模式：使用HTML/CSS模拟仪表盘
         if (this.fallbackMode || !this.chartAvailable) {
             return this.createFallbackGauge(elementId, value, maxValue, title, unit);
@@ -612,132 +617,179 @@ class ChartManager {
         return chart;
     }
     
-    // 创建离散度分析图
+// [charts.js] 替换原有的 createDiscrepancyChart 函数
     createDiscrepancyChart(elementId, data, title) {
-        const ctx = document.getElementById(elementId).getContext('2d');
-        
-        const chart = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: data.labels,
-                datasets: [{
-                    label: '电流值',
-                    data: data.values,
-                    backgroundColor: data.colors,
-                    borderColor: data.colors.map(c => this.darkenColor(c, 20)),
-                    borderWidth: 1
-                }, {
-                    label: '平均值',
-                    data: Array(data.labels.length).fill(data.average),
-                    type: 'line',
-                    borderColor: '#FF8C00',
-                    borderWidth: 2,
-                    borderDash: [5, 5],
-                    fill: false,
-                    pointRadius: 0
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    title: {
-                        display: true,
-                        text: title,
-                        font: { size: 16, weight: 'bold' }
-                    },
-                    annotation: {
-                        annotations: {
-                            threshold: {
-                                type: 'line',
-                                yMin: data.average * 0.8,
-                                yMax: data.average * 0.8,
-                                borderColor: '#FF0000',
-                                borderWidth: 2,
-                                borderDash: [3, 3],
-                                label: {
-                                    content: '阈值 (80%)',
-                                    enabled: true,
-                                    position: 'end'
+        const element = document.getElementById(elementId);
+        if (!element) return null;
+
+        // 1. 安全检查：如果 Chart 库还没加载好，直接返回 null
+        if (typeof Chart === 'undefined') {
+            console.warn(`[ChartManager] Chart.js 尚未加载，跳过创建离散度图表: ${elementId}`);
+            return null;
+        }
+
+        try {
+            const ctx = element.getContext('2d');
+            
+            // 2. 关键修复：销毁已存在的图表实例
+            const existingChart = Chart.getChart(element);
+            if (existingChart) {
+                existingChart.destroy();
+            }
+            
+            const chart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.labels,
+                    datasets: [{
+                        label: '电流值',
+                        data: data.values,
+                        backgroundColor: data.colors,
+                        borderColor: data.colors.map(c => this.darkenColor(c, 20)),
+                        borderWidth: 1
+                    }, {
+                        label: '平均值',
+                        data: Array(data.labels.length).fill(data.average),
+                        type: 'line',
+                        borderColor: '#FF8C00',
+                        borderWidth: 2,
+                        borderDash: [5, 5],
+                        fill: false,
+                        pointRadius: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: title,
+                            font: { size: 16, weight: 'bold' }
+                        },
+                        annotation: {
+                            annotations: {
+                                threshold: {
+                                    type: 'line',
+                                    yMin: data.average * 0.8,
+                                    yMax: data.average * 0.8,
+                                    borderColor: '#FF0000',
+                                    borderWidth: 2,
+                                    borderDash: [3, 3],
+                                    label: {
+                                        content: '阈值 (80%)',
+                                        enabled: true,
+                                        position: 'end'
+                                    }
                                 }
                             }
                         }
-                    }
-                },
-                scales: {
-                    x: {
-                        title: {
-                            display: true,
-                            text: '组串编号',
-                            font: { size: 14 }
-                        }
                     },
-                    y: {
-                        title: {
-                            display: true,
-                            text: '电流 (A)',
-                            font: { size: 14 }
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: '组串编号',
+                                font: { size: 14 }
+                            }
                         },
-                        beginAtZero: true
+                        y: {
+                            title: {
+                                display: true,
+                                text: '电流 (A)',
+                                font: { size: 14 }
+                            },
+                            beginAtZero: true
+                        }
                     }
                 }
-            }
-        });
-        
-        this.charts.set(elementId, chart);
-        return chart;
+            });
+            
+            this.charts.set(elementId, chart);
+            return chart;
+        } catch (error) {
+            console.error(`[ChartManager] 创建离散度图表失败 (${elementId}):`, error);
+            return null;
+        }
     }
     
-    // 创建环境参数图
+    // [charts.js] 替换原有的 createEnvironmentChart 函数
     createEnvironmentChart(elementId, data, title) {
-        const ctx = document.getElementById(elementId).getContext('2d');
-        
-        const chart = new Chart(ctx, {
-            type: 'radar',
-            data: {
-                labels: ['辐照度', '温度', '湿度', '风速', '盐雾浓度'],
-                datasets: [{
-                    label: '当前值',
-                    data: data.current,
-                    backgroundColor: 'rgba(0, 191, 255, 0.2)',
-                    borderColor: '#00BFFF',
-                    borderWidth: 2,
-                    pointBackgroundColor: '#00BFFF'
-                }, {
-                    label: '标准范围',
-                    data: data.optimal,
-                    backgroundColor: 'rgba(45, 134, 45, 0.1)',
-                    borderColor: '#2D862D',
-                    borderWidth: 1,
-                    borderDash: [5, 5],
-                    pointRadius: 0
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    title: {
-                        display: true,
-                        text: title,
-                        font: { size: 16, weight: 'bold' }
-                    },
-                    legend: {
-                        position: 'top'
-                    }
+        const element = document.getElementById(elementId);
+        if (!element) return null;
+
+        // 1. 安全检查：如果 Chart 库还没加载好，直接返回 null，防止报错
+        if (typeof Chart === 'undefined') {
+            console.warn(`[ChartManager] Chart.js 尚未加载，跳过创建环境图表: ${elementId}`);
+            return null; 
+        }
+
+        // 2. 降级模式检查
+        if (this.fallbackMode || !this.chartAvailable) {
+            // 这里可以添加降级逻辑，或者直接返回
+            return null;
+        }
+
+        try {
+            const ctx = element.getContext('2d');
+            
+            // 3. 关键修复：销毁已存在的图表实例，防止 ID 冲突
+            // Chart.js 3.x+ 写法
+            const existingChart = Chart.getChart(element);
+            if (existingChart) {
+                existingChart.destroy();
+            }
+            
+            const chart = new Chart(ctx, {
+                type: 'radar',
+                data: {
+                    labels: ['辐照度', '温度', '湿度', '风速', '盐雾浓度'],
+                    datasets: [{
+                        label: '当前值',
+                        data: data.current,
+                        backgroundColor: 'rgba(0, 191, 255, 0.2)',
+                        borderColor: '#00BFFF',
+                        borderWidth: 2,
+                        pointBackgroundColor: '#00BFFF'
+                    }, {
+                        label: '标准范围',
+                        data: data.optimal,
+                        backgroundColor: 'rgba(45, 134, 45, 0.1)',
+                        borderColor: '#2D862D',
+                        borderWidth: 1,
+                        borderDash: [5, 5],
+                        pointRadius: 0
+                    }]
                 },
-                scales: {
-                    r: {
-                        angleLines: { display: true },
-                        suggestedMin: 0,
-                        suggestedMax: 100
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: title,
+                            font: { size: 16, weight: 'bold' }
+                        },
+                        legend: {
+                            position: 'top'
+                        }
+                    },
+                    scales: {
+                        r: {
+                            angleLines: { display: true },
+                            suggestedMin: 0,
+                            suggestedMax: 100
+                        }
                     }
                 }
-            }
-        });
-        
-        this.charts.set(elementId, chart);
-        return chart;
+            });
+            
+            this.charts.set(elementId, chart);
+            return chart;
+        } catch (error) {
+            console.error(`[ChartManager] 创建环境图表失败 (${elementId}):`, error);
+            return null;
+        }
     }
     
     // 创建故障分类饼图

@@ -1,13 +1,21 @@
 class UnitControlView {
     constructor() {
-        this.container = document.getElementById('unit-control-view');
+        // 不要在这里直接获取 DOM，改为存储 ID 或在 render 时获取
+        this.containerId = 'unit-control-view'; 
         this.selectedInverter = null;
         this.inverterStringMap = {};
-        // 建立逆变器 <-> 组串映射（均匀分配或根据命名规则）
-        this.buildInverterStringMap();
+        // 数据依赖 window.systemData，确保 data.js 已加载
+        if (window.systemData) {
+            this.buildInverterStringMap();
+        }
+    }
+
+    get container() {
+        return document.getElementById(this.containerId);
     }
     
     render() {
+        if (!this.container) return; // 安全检查
         const data = window.systemData;
         // 默认选中第一个逆变器，便于快速预览
         if (!this.selectedInverter && data.devices && data.devices.inverters && data.devices.inverters.length > 0) {
@@ -976,6 +984,7 @@ class UnitControlView {
     }
 }
 
-// 导出组件
+// 底部实例化逻辑修改：
 window.UnitControlView = UnitControlView;
-window.unitControlView = new UnitControlView();
+// 移除立即实例化，改由 app.js 控制
+// window.unitControlView = new UnitControlView(); <--- 删除这行

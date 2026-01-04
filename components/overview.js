@@ -366,7 +366,15 @@ class OverviewView {
     
     initCharts() {
         const data = window.systemData;
-        
+
+        const chartsToDestroy = [
+            'environment-chart', 
+            'device-status-chart', 
+            'generation-chart', 
+            'performance-chart'
+        ];
+        chartsToDestroy.forEach(id => window.chartManager.destroyChart(id));
+
         // 环境雷达图
         this.chartManager.createEnvironmentChart('environment-chart', {
             current: [

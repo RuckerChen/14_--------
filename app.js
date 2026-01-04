@@ -1,50 +1,20 @@
-// 在文件顶部添加Chart.js加载状态检查
-let chartJsLoaded = false;
-
-// 修改初始化函数
-async function init() {
-    console.log('[App] 初始化开始');
-    
-    // 等待Chart.js加载完成
-    await waitForChartJs();
-    
-    // 初始化视图管理器
-    viewManager = new ViewManager();
-    
-    // 设置初始视图
-    const initialView = 'overview';
-    await viewManager.switchView(initialView);
-    
-    console.log('[App] 初始化完成');
-}
-
 // 添加Chart.js等待函数
+// 保留 waitForChartJs 函数定义
 function waitForChartJs() {
     return new Promise((resolve) => {
         if (typeof Chart !== 'undefined') {
-            chartJsLoaded = true;
-            console.log('[App] Chart.js已加载');
             resolve();
             return;
         }
-        
-        // 检查Chart.js是否正在加载
         const checkInterval = setInterval(() => {
             if (typeof Chart !== 'undefined') {
-                chartJsLoaded = true;
                 clearInterval(checkInterval);
-                console.log('[App] Chart.js加载完成');
                 resolve();
             }
         }, 100);
-        
-        // 设置超时
         setTimeout(() => {
-            if (!chartJsLoaded) {
-                clearInterval(checkInterval);
-                console.warn('[App] Chart.js加载超时，继续初始化');
-                resolve();
-            }
+            clearInterval(checkInterval);
+            resolve(); // 超时也继续，使用降级方案
         }, 5000);
     });
 }
@@ -55,9 +25,9 @@ class PVFaultDetectionApp {
         this.currentView = 'overview';
         this.views = {
             overview: (window.overviewView instanceof OverviewView) ? window.overviewView : new OverviewView(),
-            'unit-control': window.unitControlView || new UnitControlView(),
-            detail: window.detailView || new DetailView(),
-            support: window.supportView || new SupportView()
+            'unit-control': new UnitControlView(), // 直接 new
+            detail: new DetailView(),
+            support: new SupportView()
         };
         
         // 定时器管理
@@ -74,24 +44,28 @@ class PVFaultDetectionApp {
         this.init();
     }
     
-    init() {
-        // 初始化标签页可见性监听
-        this.initPageVisibility();
+    // 修改 init 为 async
+    async init() {
+        // 1. 等待 Chart.js 加载
+        await waitForChartJs();
         
-        // 初始化时间显示
+        // 2. 关键修复：显式更新 ChartManager 状态
+        // 因为 charts.js 运行早于 Chart.js 加载，所以初始化时 fallbackMode 默认为 true
+        if (typeof Chart !== 'undefined' && window.chartManager) {
+            window.chartManager.chartAvailable = true;
+            window.chartManager.fallbackMode = false;
+            console.log('[App] ChartManager status updated: Ready');
+        }
+
+        // 3. 初始化原有逻辑
+        this.initPageVisibility();
         this.updateTime();
         this.timers.timeUpdate = setInterval(() => this.updateTime(), 1000);
-        
-        // 绑定导航标签事件
         this.bindNavTabs();
-        
-        // 绑定快速操作按钮
         this.bindQuickActions();
-        
-        // 初始化报警栏
         this.initAlertBar();
         
-        // 渲染初始视图
+        // 4. 最后再渲染视图，确保用到真图表
         this.switchView('overview');
     }
     
