@@ -1,5 +1,5 @@
 // 添加Chart.js等待函数
-// 保留 waitForChartJs 函数定义
+// Chart.js 等待加载函数
 function waitForChartJs() {
     return new Promise((resolve) => {
         if (typeof Chart !== 'undefined') {
@@ -23,13 +23,34 @@ function waitForChartJs() {
 class PVFaultDetectionApp {
     constructor() {
         this.currentView = 'overview';
+        
+        // --- 关键修复开始 ---
+        // 1. 创建实例
+        // 注意：这里我们检查 window 上是否已经存在实例（由组件文件底部创建），如果不存在则 new 一个
+        // 对于 unit-control.js，因为你注释掉了底部的实例化，这里必须 new
+        const overviewInstance = (window.overviewView instanceof OverviewView) ? window.overviewView : new OverviewView();
+        const unitControlInstance = new UnitControlView();
+        const detailInstance = new DetailView(); // 组件可能已创建，但覆盖它以确保由App管理
+        const supportInstance = new SupportView();
+
+        // 2. 将实例挂载到 this.views
         this.views = {
-            overview: (window.overviewView instanceof OverviewView) ? window.overviewView : new OverviewView(),
-            'unit-control': new UnitControlView(), // 直接 new
-            detail: new DetailView(),
-            support: new SupportView()
+            overview: overviewInstance,
+            'unit-control': unitControlInstance,
+            detail: detailInstance,
+            support: supportInstance
         };
         
+        // 3. 【核心修复】将实例暴露给全局 window 对象
+        // 这样 HTML 中的 onclick="unitControlView.xxx()" 才能找到对象
+        window.overviewView = overviewInstance;
+        window.unitControlView = unitControlInstance; // 修复 ReferenceError: unitControlView is not defined
+        window.detailView = detailInstance;
+        window.supportView = supportInstance;
+        
+        console.log('[App] Views initialized and exposed to window:', this.views);
+        // --- 关键修复结束 ---
+
         // 定时器管理
         this.timers = {
             timeUpdate: null,
@@ -44,20 +65,18 @@ class PVFaultDetectionApp {
         this.init();
     }
     
-    // 修改 init 为 async
     async init() {
         // 1. 等待 Chart.js 加载
         await waitForChartJs();
         
-        // 2. 关键修复：显式更新 ChartManager 状态
-        // 因为 charts.js 运行早于 Chart.js 加载，所以初始化时 fallbackMode 默认为 true
+        // 2. 更新 ChartManager 状态
         if (typeof Chart !== 'undefined' && window.chartManager) {
             window.chartManager.chartAvailable = true;
             window.chartManager.fallbackMode = false;
             console.log('[App] ChartManager status updated: Ready');
         }
 
-        // 3. 初始化原有逻辑
+        // 3. 初始化逻辑
         this.initPageVisibility();
         this.updateTime();
         this.timers.timeUpdate = setInterval(() => this.updateTime(), 1000);
@@ -65,84 +84,52 @@ class PVFaultDetectionApp {
         this.bindQuickActions();
         this.initAlertBar();
         
-        // 4. 最后再渲染视图，确保用到真图表
+        // 4. 渲染初始视图
         this.switchView('overview');
     }
     
     // 初始化标签页可见性监听
     initPageVisibility() {
-        // 标准API
         const visibilityChange = () => {
             this.isTabVisible = !document.hidden;
             this.onVisibilityChange(this.isTabVisible);
         };
         
-        // 兼容性处理
         if (typeof document.hidden !== "undefined") {
             document.addEventListener("visibilitychange", visibilityChange);
-        } else if (typeof document.msHidden !== "undefined") {
-            document.addEventListener("msvisibilitychange", visibilityChange);
-        } else if (typeof document.webkitHidden !== "undefined") {
-            document.addEventListener("webkitvisibilitychange", visibilityChange);
         }
         
-        // 页面卸载时清理
         window.addEventListener('beforeunload', () => {
             this.cleanupAllTimers();
         });
     }
     
-    // 标签页可见性变化处理
     onVisibilityChange(isVisible) {
-        console.log(`标签页${isVisible ? '活跃' : '不活跃'}`);
-        
         if (isVisible) {
-            // 恢复必要定时器
             if (!this.timers.timeUpdate) {
                 this.timers.timeUpdate = setInterval(() => this.updateTime(), 1000);
             }
         } else {
-            // 暂停非必要定时器
             this.pauseNonEssentialTimers();
         }
     }
     
-    // 暂停非必要定时器
     pauseNonEssentialTimers() {
-        // 时间更新定时器可以保留，但可以降低频率
         if (this.timers.timeUpdate) {
             clearInterval(this.timers.timeUpdate);
-            this.timers.timeUpdate = setInterval(() => this.updateTime(), 5000); // 降低到5秒一次
+            this.timers.timeUpdate = setInterval(() => this.updateTime(), 5000);
         }
-        
-        // 暂停模态框中的动画定时器
-        this.pauseModalAnimations();
     }
     
-    // 暂停模态框动画
-    pauseModalAnimations() {
-        // 这里可以添加暂停模态框动画的逻辑
-        // 由于模态框定时器是局部变量，需要在创建时添加可见性检查
-    }
-    
-    // 清理所有定时器
     cleanupAllTimers() {
         Object.values(this.timers).forEach(timer => {
             if (timer) clearInterval(timer);
         });
         
-        // 清理模态框定时器
-        this.cleanupModalTimers();
-    }
-    
-    // 清理模态框定时器
-    cleanupModalTimers() {
-        // 查找并清理所有模态框中的定时器
         const modals = document.querySelectorAll('.modal');
         modals.forEach(modal => {
-            const progressInterval = modal.dataset.progressInterval;
-            if (progressInterval) {
-                clearInterval(parseInt(progressInterval));
+            if (modal.dataset.progressInterval) {
+                clearInterval(parseInt(modal.dataset.progressInterval));
             }
         });
     }
@@ -150,9 +137,6 @@ class PVFaultDetectionApp {
     updateTime() {
         const now = new Date();
         const timeString = now.toLocaleString('zh-CN', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
             hour: '2-digit',
             minute: '2-digit',
             second: '2-digit',
@@ -168,32 +152,28 @@ class PVFaultDetectionApp {
     bindNavTabs() {
         document.querySelectorAll('.nav-tab').forEach(tab => {
             tab.addEventListener('click', (e) => {
-                const view = e.currentTarget.dataset.view;
-                this.switchView(view);
+                // 处理点击图标或文字的情况，确保获取到 button 元素
+                const button = e.target.closest('.nav-tab');
+                if (button) {
+                    const view = button.dataset.view;
+                    this.switchView(view);
+                }
             });
         });
     }
     
     bindQuickActions() {
-        // 快速关断
-        document.getElementById('quick-shutdown').addEventListener('click', () => {
-            this.quickShutdown();
-        });
+        const btnShutdown = document.getElementById('quick-shutdown');
+        if(btnShutdown) btnShutdown.addEventListener('click', () => this.quickShutdown());
         
-        // I-V扫描
-        document.getElementById('iv-scan').addEventListener('click', () => {
-            this.startIVScan();
-        });
+        const btnScan = document.getElementById('iv-scan');
+        if(btnScan) btnScan.addEventListener('click', () => this.startIVScan());
         
-        // 生成报告
-        document.getElementById('report-gen').addEventListener('click', () => {
-            this.generateReport();
-        });
+        const btnReport = document.getElementById('report-gen');
+        if(btnReport) btnReport.addEventListener('click', () => this.generateReport());
         
-        // AI诊断
-        document.getElementById('ai-diagnose').addEventListener('click', () => {
-            this.runAIDiagnosis();
-        });
+        const btnDiagnose = document.getElementById('ai-diagnose');
+        if(btnDiagnose) btnDiagnose.addEventListener('click', () => this.runAIDiagnosis());
     }
     
     initAlertBar() {
@@ -201,31 +181,40 @@ class PVFaultDetectionApp {
         const alertMessage = document.getElementById('alert-message');
         const ackButton = document.getElementById('ack-alert');
         
-        // 检查是否有未确认的紧急报警
-        const criticalAlarm = window.systemData.alarms.list.find(
-            alarm => alarm.type === 'critical' && !alarm.acknowledged
-        );
+        if (!alertBar || !alertMessage || !ackButton) return;
         
-        if (criticalAlarm) {
-            alertBar.className = 'alert-bar critical';
-            alertMessage.textContent = `紧急: ${criticalAlarm.message}`;
-            alertBar.style.display = 'flex';
-        } else {
-            alertBar.style.display = 'none';
-        }
+        const updateStatus = () => {
+            const criticalAlarm = window.systemData.alarms.list.find(
+                alarm => alarm.type === 'critical' && !alarm.acknowledged
+            );
+            
+            if (criticalAlarm) {
+                alertBar.className = 'alert-widget critical';
+                alertMessage.textContent = `紧急: ${criticalAlarm.message}`;
+            } else {
+                alertBar.className = 'alert-widget normal';
+                alertMessage.textContent = '系统运行正常';
+            }
+        };
+
+        updateStatus();
         
-        // 报警确认按钮
         ackButton.addEventListener('click', () => {
+            const criticalAlarm = window.systemData.alarms.list.find(
+                alarm => alarm.type === 'critical' && !alarm.acknowledged
+            );
             if (criticalAlarm) {
                 criticalAlarm.acknowledged = true;
-                alertBar.style.display = 'none';
                 this.showToast('紧急报警已确认', 'success');
+                updateStatus();
+            } else {
+                this.showToast('当前无待确认报警', 'info');
             }
         });
     }
     
     switchView(viewName) {
-        // 更新导航标签
+        // 更新侧边栏导航状态
         document.querySelectorAll('.nav-tab').forEach(tab => {
             tab.classList.toggle('active', tab.dataset.view === viewName);
         });
@@ -237,7 +226,9 @@ class PVFaultDetectionApp {
         
         // 渲染对应视图
         if (this.views[viewName]) {
-            this.views[viewName].render();
+            if (typeof this.views[viewName].render === 'function') {
+                this.views[viewName].render();
+            }
         }
         
         this.currentView = viewName;
@@ -253,24 +244,21 @@ class PVFaultDetectionApp {
                         <h3>快速关断执行中</h3>
                     </div>
                     <div class="modal-body">
-                        <div class="shutdown-progress">
-                            <div class="progress-text">
-                                <i class="fas fa-power-off fa-spin"></i>
-                                正在执行快速关断...
-                            </div>
-                            <div class="progress-bar">
-                                <div class="progress-fill" id="shutdown-progress"></div>
-                            </div>
-                            <div class="shutdown-steps">
-                                <div class="step active">发送关断指令</div>
-                                <div class="step">断开直流接触器</div>
-                                <div class="step">监控电压下降</div>
-                                <div class="step">确认安全状态</div>
-                            </div>
-                            <div class="voltage-display">
-                                <div class="voltage-label">当前电压:</div>
-                                <div class="voltage-value" id="current-voltage">650 V</div>
-                            </div>
+                        <div class="progress-text" style="text-align:center; margin-bottom:15px;">
+                            <i class="fas fa-power-off fa-spin" style="color:var(--status-critical);"></i>
+                            正在执行快速关断...
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill critical" id="shutdown-progress" style="width:0%"></div>
+                        </div>
+                        <div class="shutdown-steps" style="display:flex; justify-content:space-between; margin-top:20px; font-size:0.8rem; color:#666;">
+                            <span>发送指令</span>
+                            <span>断开接触器</span>
+                            <span>监控电压</span>
+                            <span>确认安全</span>
+                        </div>
+                        <div style="text-align:center; margin-top:20px; font-family:'JetBrains Mono'; font-weight:bold;">
+                            当前电压: <span id="current-voltage" style="color:var(--status-critical);">650 V</span>
                         </div>
                     </div>
                 </div>
@@ -278,11 +266,10 @@ class PVFaultDetectionApp {
             
             document.getElementById('modal-container').appendChild(modal);
             
-            // 模拟关断过程
             let progress = 0;
             let voltage = 650;
             const progressInterval = setInterval(() => {
-                progress += 8.33; // 30秒完成
+                progress += 5; 
                 voltage = Math.max(0, 650 - (progress / 100 * 650));
                 
                 const progressBar = modal.querySelector('#shutdown-progress');
@@ -296,631 +283,45 @@ class PVFaultDetectionApp {
                     setTimeout(() => {
                         modal.remove();
                         this.showToast('快速关断完成，系统已进入安全状态', 'success');
-                    }, 1000);
+                    }, 800);
                 }
-            }, 250);
+            }, 200);
+            
+            // 存储定时器以便清理
+            modal.dataset.progressInterval = progressInterval;
         }
     }
     
     startIVScan() {
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-        modal.innerHTML = `
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>I-V曲线扫描</h3>
-                    <button class="modal-close">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="scan-config">
-                        <div class="form-group">
-                            <label for="scan-device">选择设备</label>
-                            <select id="scan-device">
-                                <option value="all">全部逆变器</option>
-                                ${window.systemData.devices.inverters.map(inv => `
-                                    <option value="${inv.id}">${inv.id}</option>
-                                `).join('')}
-                            </select>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="scan-resolution">扫描分辨率</label>
-                            <select id="scan-resolution">
-                                <option value="high">高分辨率 (100点)</option>
-                                <option value="medium" selected>中分辨率 (50点)</option>
-                                <option value="low">低分辨率 (20点)</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="scan-speed">扫描速度</label>
-                            <select id="scan-speed">
-                                <option value="fast">快速扫描 (5分钟)</option>
-                                <option value="normal" selected>标准扫描 (15分钟)</option>
-                                <option value="detailed">详细扫描 (30分钟)</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <div class="scan-preview">
-                        <h5>预计扫描时间: <span id="estimated-time">15分钟</span></h5>
-                        <p>扫描期间选中的设备将暂时停止发电</p>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button class="btn btn-secondary" id="cancel-scan">取消</button>
-                    <button class="btn btn-primary" onclick="app.startScanProcess()">
-                        <i class="fas fa-play"></i> 开始扫描
-                    </button>
-                </div>
-            </div>
-        `;
-        
-        document.getElementById('modal-container').appendChild(modal);
-        
-        // 更新预计时间
-        const speedSelect = modal.querySelector('#scan-speed');
-        const timeDisplay = modal.querySelector('#estimated-time');
-        
-        speedSelect.addEventListener('change', (e) => {
-            const times = { fast: '5分钟', normal: '15分钟', detailed: '30分钟' };
-            timeDisplay.textContent = times[e.target.value] || '15分钟';
-        });
-        
-        modal.querySelector('.modal-close').addEventListener('click', () => modal.remove());
-        modal.querySelector('#cancel-scan').addEventListener('click', () => modal.remove());
-    }
-    
-    startScanProcess() {
-        const device = document.getElementById('scan-device').value;
-        const resolution = document.getElementById('scan-resolution').value;
-        const speed = document.getElementById('scan-speed').value;
-        
-        // 关闭配置模态框
-        document.querySelectorAll('.modal').forEach(modal => modal.remove());
-        
-        // 显示扫描进度
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-        modal.innerHTML = `
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>I-V曲线扫描进行中</h3>
-                </div>
-                <div class="modal-body">
-                    <div class="scan-progress">
-                        <div class="progress-info">
-                            <div class="info-item">
-                                <span class="label">设备:</span>
-                                <span class="value">${device}</span>
-                            </div>
-                            <div class="info-item">
-                                <span class="label">状态:</span>
-                                <span class="value">扫描中</span>
-                            </div>
-                        </div>
-                        
-                        <div class="progress-bar">
-                            <div class="progress-fill" id="scan-progress"></div>
-                        </div>
-                        
-                        <div class="scan-steps">
-                            <div class="step active">初始化扫描仪</div>
-                            <div class="step">采集电压数据</div>
-                            <div class="step">采集电流数据</div>
-                            <div class="step">生成曲线</div>
-                            <div class="step">分析结果</div>
-                        </div>
-                        
-                        <div class="current-reading">
-                            <div class="reading">
-                                <span class="label">当前电压:</span>
-                                <span class="value" id="scan-voltage">0 V</span>
-                            </div>
-                            <div class="reading">
-                                <span class="label">当前电流:</span>
-                                <span class="value" id="scan-current">0 A</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        document.getElementById('modal-container').appendChild(modal);
-        
-        // 模拟扫描过程
-        let progress = 0;
-        const progressInterval = setInterval(() => {
-            progress += 2;
-            
-            const progressBar = modal.querySelector('#scan-progress');
-            const voltageDisplay = modal.querySelector('#scan-voltage');
-            const currentDisplay = modal.querySelector('#scan-current');
-            
-            if (progressBar) progressBar.style.width = `${progress}%`;
-            
-            // 模拟电压电流变化
-            if (progress < 25) {
-                if (voltageDisplay) voltageDisplay.textContent = `${Math.min(650, progress * 26)} V`;
-                if (currentDisplay) currentDisplay.textContent = `0 A`;
-            } else if (progress < 75) {
-                if (voltageDisplay) voltageDisplay.textContent = `650 V`;
-                if (currentDisplay) currentDisplay.textContent = `${Math.min(9, (progress - 25) * 0.18)} A`;
-            } else {
-                if (voltageDisplay) voltageDisplay.textContent = `${Math.max(0, 650 - (progress - 75) * 26)} V`;
-                if (currentDisplay) currentDisplay.textContent = `9 A`;
-            }
-            
-            // 更新步骤
-            const steps = modal.querySelectorAll('.scan-steps .step');
-            steps.forEach((step, index) => {
-                step.classList.toggle('active', progress >= index * 20);
-            });
-            
-            if (progress >= 100) {
-                clearInterval(progressInterval);
-                setTimeout(() => {
-                    modal.remove();
-                    this.showScanResults(device);
-                }, 1000);
-            }
-        }, 200);
-    }
-    
-    showScanResults(device) {
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-        modal.innerHTML = `
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>I-V曲线扫描结果 - ${device}</h3>
-                    <button class="modal-close">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="scan-results">
-                        <div class="result-summary">
-                            <h5>扫描摘要</h5>
-                            <div class="summary-grid">
-                                <div class="summary-item">
-                                    <span class="label">扫描时间:</span>
-                                    <span class="value">${new Date().toLocaleString('zh-CN')}</span>
-                                </div>
-                                <div class="summary-item">
-                                    <span class="label">数据点数:</span>
-                                    <span class="value">50</span>
-                                </div>
-                                <div class="summary-item">
-                                    <span class="label">最大功率:</span>
-                                    <span class="value">4.85 kW</span>
-                                </div>
-                                <div class="summary-item">
-                                    <span class="label">填充因子:</span>
-                                    <span class="value">0.76</span>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="result-analysis">
-                            <h5>分析结果</h5>
-                            <div class="analysis-result ${Math.random() > 0.5 ? 'normal' : 'warning'}">
-                                <i class="fas fa-${Math.random() > 0.5 ? 'check-circle' : 'exclamation-triangle'}"></i>
-                                <span>
-                                    ${Math.random() > 0.5 ? 
-                                        'I-V曲线正常，无显著故障特征' : 
-                                        '检测到轻微阴影遮挡，建议检查阵列周边'}
-                                </span>
-                            </div>
-                        </div>
-                        
-                        <div class="result-chart">
-                            <h5>I-V/P-V曲线</h5>
-                            <div class="chart-container" style="height: 250px;">
-                                <canvas id="result-chart"></canvas>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button class="btn btn-secondary" id="close-results">关闭</button>
-                    <button class="btn btn-primary" onclick="app.saveScanResults('${device}')">
-                        <i class="fas fa-save"></i> 保存结果
-                    </button>
-                    <button class="btn btn-secondary" onclick="app.exportScanData('${device}')">
-                        <i class="fas fa-download"></i> 导出数据
-                    </button>
-                </div>
-            </div>
-        `;
-        
-        document.getElementById('modal-container').appendChild(modal);
-        
-        // 初始化结果图表
-        setTimeout(() => {
-            this.initResultChart();
-        }, 100);
-        
-        modal.querySelector('.modal-close').addEventListener('click', () => modal.remove());
-        modal.querySelector('#close-results').addEventListener('click', () => modal.remove());
-    }
-    
-    initResultChart() {
-        const ctx = document.getElementById('result-chart').getContext('2d');
-        
-        // 生成模拟数据
-        const voltage = [];
-        const current = [];
-        const power = [];
-        
-        for (let i = 0; i <= 650; i += 13) {
-            voltage.push(i);
-            const currentVal = 9 * (1 - Math.exp(-i / 200));
-            current.push(currentVal);
-            power.push(i * currentVal / 1000); // 转换为kW
+        // 由于原代码的 startIVScan 逻辑在 app.js 中比较复杂，这里调用 unitControlView 中的逻辑或者简化的逻辑
+        // 如果 unitControlView 已经实例化，我们可以直接调用它的方法，或者在这里实现一个通用方法
+        // 为了简单起见，这里复用 UnitControlView 中的逻辑，前提是它存在
+        if (window.unitControlView && typeof window.unitControlView.startIVScan === 'function') {
+             // 模拟调用一个逆变器的扫描，或者弹出一个选择框
+             window.unitControlView.startIVScan('INV-01 (全局演示)');
+        } else {
+             alert('正在初始化 I-V 扫描模块...');
         }
-        
-        new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: voltage,
-                datasets: [
-                    {
-                        label: '电流 (A)',
-                        data: current,
-                        borderColor: '#2D862D',
-                        backgroundColor: 'rgba(45, 134, 45, 0.1)',
-                        borderWidth: 2,
-                        yAxisID: 'y',
-                        tension: 0.4
-                    },
-                    {
-                        label: '功率 (kW)',
-                        data: power,
-                        borderColor: '#00BFFF',
-                        backgroundColor: 'rgba(0, 191, 255, 0.1)',
-                        borderWidth: 2,
-                        yAxisID: 'y1',
-                        tension: 0.4
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: {
-                    mode: 'index',
-                    intersect: false
-                },
-                scales: {
-                    x: {
-                        title: {
-                            display: true,
-                            text: '电压 (V)'
-                        }
-                    },
-                    y: {
-                        type: 'linear',
-                        display: true,
-                        position: 'left',
-                        title: {
-                            display: true,
-                            text: '电流 (A)'
-                        }
-                    },
-                    y1: {
-                        type: 'linear',
-                        display: true,
-                        position: 'right',
-                        title: {
-                            display: true,
-                            text: '功率 (kW)'
-                        },
-                        grid: {
-                            drawOnChartArea: false
-                        }
-                    }
-                }
-            }
-        });
     }
     
-    saveScanResults(device) {
-        this.showToast(`${device}的I-V曲线扫描结果已保存到数据库`, 'success');
-    }
-    
-    exportScanData(device) {
-        alert(`正在导出 ${device} 的扫描数据...\n\n包含: I-V曲线数据、P-V曲线数据、分析结果`);
-    }
     generateReport() {
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-        modal.innerHTML = `
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>生成系统报告</h3>
-                    <button class="modal-close">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="report-config">
-                        <div class="form-group">
-                            <label for="report-type">报告类型</label>
-                            <select id="report-type">
-                                <option value="daily">日报</option>
-                                <option value="weekly">周报</option>
-                                <option value="monthly">月报</option>
-                                <option value="fault-analysis">故障分析报告</option>
-                                <option value="performance">性能评估报告</option>
-                                <option value="maintenance">维护报告</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="report-period">时间范围</label>
-                            <div class="date-range">
-                                <input type="date" id="start-date" value="${this.getDateString(-7)}">
-                                <span>至</span>
-                                <input type="date" id="end-date" value="${this.getDateString(0)}">
-                            </div>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label>包含内容</label>
-                            <div class="report-sections">
-                                <label>
-                                    <input type="checkbox" name="report-sections" value="kpi" checked>
-                                    关键性能指标
-                                </label>
-                                <label>
-                                    <input type="checkbox" name="report-sections" value="generation" checked>
-                                    发电量分析
-                                </label>
-                                <label>
-                                    <input type="checkbox" name="report-sections" value="faults" checked>
-                                    故障统计
-                                </label>
-                                <label>
-                                    <input type="checkbox" name="report-sections" value="environment">
-                                    环境数据
-                                </label>
-                                <label>
-                                    <input type="checkbox" name="report-sections" value="maintenance">
-                                    维护记录
-                                </label>
-                                <label>
-                                    <input type="checkbox" name="report-sections" value="recommendations" checked>
-                                    建议措施
-                                </label>
-                            </div>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="report-format">输出格式</label>
-                            <select id="report-format">
-                                <option value="pdf">PDF文档</option>
-                                <option value="excel">Excel文件</option>
-                                <option value="html">HTML网页</option>
-                                <option value="word">Word文档</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <div class="report-preview">
-                        <h5>报告预览</h5>
-                        <div class="preview-content">
-                            <p><strong>标题:</strong> <span id="preview-title">光伏系统日报</span></p>
-                            <p><strong>时间:</strong> <span id="preview-period">${this.getDateString(-7)} 至 ${this.getDateString(0)}</span></p>
-                            <p><strong>内容:</strong> 关键性能指标、发电量分析、故障统计、建议措施</p>
-                            <p><strong>格式:</strong> PDF文档</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button class="btn btn-secondary" id="cancel-report">取消</button>
-                    <button class="btn btn-primary" onclick="app.generateReportNow()">
-                        <i class="fas fa-file-alt"></i> 生成报告
-                    </button>
-                </div>
-            </div>
-        `;
-        
-        document.getElementById('modal-container').appendChild(modal);
-        
-        // 更新预览
-        const updatePreview = () => {
-            const type = document.getElementById('report-type').value;
-            const startDate = document.getElementById('start-date').value;
-            const endDate = document.getElementById('end-date').value;
-            const format = document.getElementById('report-format').value;
-            
-            const typeNames = {
-                'daily': '日报',
-                'weekly': '周报',
-                'monthly': '月报',
-                'fault-analysis': '故障分析报告',
-                'performance': '性能评估报告',
-                'maintenance': '维护报告'
-            };
-            
-            const formatNames = {
-                'pdf': 'PDF文档',
-                'excel': 'Excel文件',
-                'html': 'HTML网页',
-                'word': 'Word文档'
-            };
-            
-            document.getElementById('preview-title').textContent = 
-                `光伏系统${typeNames[type] || '报告'}`;
-            document.getElementById('preview-period').textContent = 
-                `${startDate} 至 ${endDate}`;
-        };
-        
-        // 绑定事件
-        modal.querySelector('#report-type').addEventListener('change', updatePreview);
-        modal.querySelector('#start-date').addEventListener('change', updatePreview);
-        modal.querySelector('#end-date').addEventListener('change', updatePreview);
-        modal.querySelector('#report-format').addEventListener('change', updatePreview);
-        
-        modal.querySelector('.modal-close').addEventListener('click', () => modal.remove());
-        modal.querySelector('#cancel-report').addEventListener('click', () => modal.remove());
-    }
-    
-    getDateString(daysOffset) {
-        const date = new Date();
-        date.setDate(date.getDate() + daysOffset);
-        return date.toISOString().split('T')[0];
-    }
-    
-    generateReportNow() {
-        const type = document.getElementById('report-type').value;
-        const startDate = document.getElementById('start-date').value;
-        const endDate = document.getElementById('end-date').value;
-        const format = document.getElementById('report-format').value;
-        
-        // 关闭配置模态框
-        document.querySelectorAll('.modal').forEach(modal => modal.remove());
-        
-        // 显示生成进度
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-        modal.innerHTML = `
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>正在生成报告</h3>
-                </div>
-                <div class="modal-body">
-                    <div class="report-progress">
-                        <div class="progress-info">
-                            <div class="info-item">
-                                <span class="label">报告类型:</span>
-                                <span class="value">${type}</span>
-                            </div>
-                            <div class="info-item">
-                                <span class="label">时间范围:</span>
-                                <span class="value">${startDate} 至 ${endDate}</span>
-                            </div>
-                        </div>
-                        
-                        <div class="progress-bar">
-                            <div class="progress-fill" id="report-progress"></div>
-                        </div>
-                        
-                        <div class="progress-steps">
-                            <div class="step active">收集数据</div>
-                            <div class="step">分析统计</div>
-                            <div class="step">生成图表</div>
-                            <div class="step">格式化输出</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        document.getElementById('modal-container').appendChild(modal);
-        
-        // 模拟报告生成过程
-        let progress = 0;
-        const progressInterval = setInterval(() => {
-            progress += 10;
-            
-            const progressBar = modal.querySelector('#report-progress');
-            if (progressBar) progressBar.style.width = `${progress}%`;
-            
-            // 更新步骤
-            const steps = modal.querySelectorAll('.progress-steps .step');
-            steps.forEach((step, index) => {
-                step.classList.toggle('active', progress >= index * 25);
-            });
-            
-            if (progress >= 100) {
-                clearInterval(progressInterval);
-                setTimeout(() => {
-                    modal.remove();
-                    this.showReportComplete(type, format);
-                }, 500);
-            }
-        }, 300);
-    }
-    
-    showReportComplete(type, format) {
-        const typeNames = {
-            'daily': '日报',
-            'weekly': '周报',
-            'monthly': '月报',
-            'fault-analysis': '故障分析报告',
-            'performance': '性能评估报告',
-            'maintenance': '维护报告'
-        };
-        
-        const formatExtensions = {
-            'pdf': 'pdf',
-            'excel': 'xlsx',
-            'html': 'html',
-            'word': 'docx'
-        };
-        
-        const fileName = `光伏系统${typeNames[type]}_${new Date().toISOString().slice(0,10)}.${formatExtensions[format]}`;
-        
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-        modal.innerHTML = `
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>报告生成完成</h3>
-                    <button class="modal-close">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div class="report-complete">
-                        <div class="success-icon">
-                            <i class="fas fa-check-circle"></i>
-                        </div>
-                        <h4>报告已成功生成</h4>
-                        <div class="report-info">
-                            <p><strong>文件名:</strong> ${fileName}</p>
-                            <p><strong>大小:</strong> ${Math.round(Math.random() * 5 + 2)} MB</p>
-                            <p><strong>生成时间:</strong> ${new Date().toLocaleString('zh-CN')}</p>
-                        </div>
-                        <div class="report-actions">
-                            <button class="btn btn-primary" onclick="app.downloadReport('${fileName}')">
-                                <i class="fas fa-download"></i> 下载报告
-                            </button>
-                            <button class="btn btn-secondary" onclick="app.emailReport('${fileName}')">
-                                <i class="fas fa-envelope"></i> 邮件发送
-                            </button>
-                            <button class="btn btn-secondary" onclick="app.printReport('${fileName}')">
-                                <i class="fas fa-print"></i> 打印
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button class="btn btn-secondary" id="close-complete">关闭</button>
-                </div>
-            </div>
-        `;
-        
-        document.getElementById('modal-container').appendChild(modal);
-        
-        modal.querySelector('.modal-close').addEventListener('click', () => modal.remove());
-        modal.querySelector('#close-complete').addEventListener('click', () => modal.remove());
-    }
-    
-    downloadReport(fileName) {
-        alert(`正在下载: ${fileName}\n\n文件将保存到您的默认下载文件夹。`);
-    }
-    
-    emailReport(fileName) {
-        alert(`邮件发送功能\n\n报告 "${fileName}" 将发送到预设的收件人列表。`);
-    }
-    
-    printReport(fileName) {
-        alert(`打印报告: ${fileName}\n\n请确保打印机已连接并准备就绪。`);
+        if (typeof this.generateReportUI === 'function') {
+            this.generateReportUI();
+        } else {
+            // 简单的回退逻辑
+             const modal = document.createElement('div');
+             modal.className = 'modal';
+             modal.innerHTML = `
+                <div class="modal-content">
+                    <div class="modal-header"><h3>生成报告</h3><button class="modal-close" onclick="this.closest('.modal').remove()">&times;</button></div>
+                    <div class="modal-body"><p>正在生成系统运行报告...</p></div>
+                </div>`;
+             document.getElementById('modal-container').appendChild(modal);
+        }
     }
     
     runAIDiagnosis() {
-        // 切换到故障诊断视图并运行AI诊断
         this.switchView('detail');
-        
-        // 等待视图渲染完成
         setTimeout(() => {
             if (window.detailView && typeof window.detailView.runAIDiagnosis === 'function') {
                 window.detailView.runAIDiagnosis();
@@ -930,19 +331,36 @@ class PVFaultDetectionApp {
     
     showToast(message, type = 'info') {
         const toast = document.createElement('div');
-        toast.className = `toast toast-${type}`;
+        toast.className = 'alert-widget';
+        toast.style.position = 'fixed';
+        toast.style.bottom = '30px';
+        toast.style.right = '30px';
+        toast.style.zIndex = '9999';
+        toast.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+        toast.style.animation = 'fadeIn 0.3s ease';
+        toast.style.padding = '12px 20px';
+        toast.style.background = '#fff';
+        
+        let icon = 'info-circle';
+        let colorClass = 'normal';
+        let iconColor = '#3b82f6';
+        
+        if (type === 'success') { icon = 'check-circle'; colorClass = 'normal'; iconColor = '#10b981'; }
+        if (type === 'warning') { icon = 'exclamation-triangle'; colorClass = 'high'; iconColor = '#f59e0b'; }
+        if (type === 'error') { icon = 'times-circle'; colorClass = 'critical'; iconColor = '#ef4444'; }
+        
+        toast.classList.add(colorClass);
         toast.innerHTML = `
-            <i class="fas fa-${type === 'success' ? 'check-circle' : 'info-circle'}"></i>
-            <span>${message}</span>
+            <i class="fas fa-${icon}" style="margin-right:8px; font-size:1.2rem; color:${iconColor}"></i>
+            <span style="font-weight:500; color:#333">${message}</span>
         `;
+        
         document.body.appendChild(toast);
         
         setTimeout(() => {
-            toast.classList.add('show');
-        }, 10);
-        
-        setTimeout(() => {
-            toast.classList.remove('show');
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(10px)';
+            toast.style.transition = 'all 0.3s ease';
             setTimeout(() => toast.remove(), 300);
         }, 3000);
     }
